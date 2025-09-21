@@ -3219,7 +3219,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "05f63835928ca123f1bef57abbcd23bb2ba0ac9ae1235f1e65bda0d06e7786bd"
 dependencies = [
  "rustls 0.23.32",
- "rustls 0.23.32+fork.1",
  "tokio",
 ]
 
