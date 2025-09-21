@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.23.34] - 2025-09-21
+## [0.23.31] - 2025-09-21
 
 ### Added
 - **HelloPolicy Framework**: Introduced `HelloPolicy` trait for customizable ClientHello construction
@@ -18,6 +18,12 @@
 - Zero-overhead when no policy is configured (maintains upstream compatibility)
 - TLS 1.3 focused implementation (TLS 1.2 remains unchanged)
 - Full backward compatibility with existing Rustls ecosystem
+
+
+### Changed
+- Client API: `ClientConfig` builder method `with_no_client_auth()` now returns `ClientConfig` (non-`Result`) for better ecosystem compatibility (e.g. `hickory-proto`). Updated all in-repo usages (examples/benches/docs) to remove `?`/`.unwrap()` accordingly.
+- Examples/benches: aligned code to new signature; `cargo check` passes across the workspace.
+- Minor: removed trivial `Vec<u8>` casts in GREASE extension value construction to satisfy clippy.
 
 ### Notes
 - Windows users with `aws-lc-rs` provider can use `AWS_LC_SYS_PREBUILT_NASM=1` to avoid NASM installation
