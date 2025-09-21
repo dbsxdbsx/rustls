@@ -172,6 +172,14 @@ impl WebPkiServerVerifier {
         ServerCertVerifierBuilder::new(roots, provider.signature_verification_algorithms)
     }
 
+    /// Convenience overload that accepts an owned `Arc<CryptoProvider>` without requiring callers to take a reference.
+    pub fn builder_with_provider_arc(
+        roots: Arc<RootCertStore>,
+        provider: Arc<CryptoProvider>,
+    ) -> ServerCertVerifierBuilder {
+        ServerCertVerifierBuilder::new(roots, provider.signature_verification_algorithms)
+    }
+
     /// Short-cut for creating a `WebPkiServerVerifier` that does not perform certificate revocation
     /// checking, avoiding the need to use a builder.
     pub(crate) fn new_without_revocation(
