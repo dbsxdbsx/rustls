@@ -9,6 +9,6 @@
 [dependencies]
     hex             ="0.4"
     provider-example={package="rustls-provider-example", version="0.0.1", path="../provider-example"}
-    rustls          ={version="0.23.34", features=["aws-lc-rs", "log"], path="../rustls"}
+    rustls          ={version="0.23.32+fork.1", features=["aws-lc-rs", "log"], path="../rustls"}
     serde           ={version="1", features=["derive"]}
     serde_json      ="1"
