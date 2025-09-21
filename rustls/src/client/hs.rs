@@ -497,13 +497,55 @@ impl ClientHelloInput {
             None => SessionId::random(config.provider.secure_random)?,
         };
 
-        let hello = ClientHelloDetails::new(
-            extra_exts
-                .protocols
-                .clone()
-                .unwrap_or_default(),
-            crate::rand::random_u16(config.provider.secure_random)?,
-        );
+        // Prepare ALPN and extension order seed, possibly influenced by a HelloPolicy
+        let mut alpn = extra_exts
+            .protocols
+            .clone()
+            .unwrap_or_default();
+        let mut ext_seed = crate::rand::random_u16(config.provider.secure_random)?;
+
+        if let Some(policy) = config.hello_policy.as_ref() {
+            use crate::client::hello_policy::{AlpnDecision, HelloPolicyContext};
+
+            let ctx = HelloPolicyContext {
+                tls12: config.supports_version(ProtocolVersion::TLSv1_2),
+                tls13: config.supports_version(ProtocolVersion::TLSv1_3),
+                is_quic: cx.common.is_quic(),
+                sni: &[],
+            };
+
+            // Current ALPN as bytes
+            let current: alloc::vec::Vec<alloc::vec::Vec<u8>> = alpn
+                .iter()
+                .map(|p| p.to_vec())
+                .collect();
+
+            match policy.alpn(&current, &ctx) {
+                AlpnDecision::Inherit => {}
+                AlpnDecision::Override(list) => {
+                    alpn = list
+                        .into_iter()
+                        .map(|v| ProtocolName::from(v))
+                        .collect();
+                }
+                AlpnDecision::Filter(order) => {
+                    let mut filtered = alloc::vec::Vec::with_capacity(alpn.len());
+                    for want in order {
+                        for have in &alpn {
+                            if have.as_ref() == want.as_slice() {
+                                filtered.push(ProtocolName::from(want));
+                                break;
+                            }
+                        }
+                    }
+                    alpn = filtered;
+                }
+            }
+
+            ext_seed = policy.extension_order_seed(ext_seed, &ctx);
+        }
+
+        let hello = ClientHelloDetails::new(alpn, ext_seed);
 
         Ok(Self {
             resuming,
@@ -758,6 +800,33 @@ fn emit_client_hello_for_retry(
             false => None,
         })
         .collect();
+
+    if let Some(policy) = config.hello_policy.as_ref() {
+        use crate::client::hello_policy::HelloPolicyContext;
+        let ctx = HelloPolicyContext {
+            tls12: supported_versions.tls12,
+            tls13: supported_versions.tls13,
+            is_quic: cx.common.is_quic(),
+            sni: &[],
+        };
+        if let Some(mut desired) = policy.cipher_suites(&cipher_suites, &ctx) {
+            // Keep only suites that are actually supported for this protocol
+            let allowed = &cipher_suites;
+            let mut reordered = alloc::vec::Vec::with_capacity(allowed.len());
+            for s in desired.drain(..) {
+                if allowed.contains(&s) && !reordered.contains(&s) {
+                    reordered.push(s);
+                }
+            }
+            // Append any remaining allowed items preserving their original order
+            for s in allowed {
+                if !reordered.contains(s) {
+                    reordered.push(*s);
+                }
+            }
+            cipher_suites = reordered;
+        }
+    }
 
     if supported_versions.tls12 {
         // We don't do renegotiation at all, in fact.

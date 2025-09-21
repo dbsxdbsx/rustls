@@ -699,3 +699,56 @@ fn roots() -> RootCertStore {
     .unwrap();
     r
 }
+
+#[cfg(feature = "aws-lc-rs")]
+fn tls13_only_provider() -> CryptoProvider {
+    crate::crypto::aws_lc_rs::default_provider().with_only_tls13()
+}
+
+#[cfg(all(not(feature = "aws-lc-rs"), feature = "ring"))]
+fn tls13_only_provider() -> CryptoProvider {
+    crate::crypto::ring::default_provider().with_only_tls13()
+}
+
+#[test]
+fn hello_policy_chrome_latest_applies() {
+    // Use TLS1.3-only provider to stabilize expectations
+    let mut config = ClientConfig::builder_with_provider(tls13_only_provider().into())
+        .with_root_certificates(roots())
+        .with_no_client_auth()
+        .unwrap();
+
+    // Ensure default has no ALPN
+    assert!(config.alpn_protocols.is_empty());
+
+    // Attach browser-like policy (Chrome preset)
+    config = config.with_hello_policy(Arc::new(crate::client::BrowserLikePolicy::chrome_latest()));
+
+    let ch = client_hello_sent_for_config(config).unwrap();
+
+    // ALPN should be present and start with h2, then http/1.1
+    let protos = ch
+        .protocols
+        .as_ref()
+        .expect("alpn present");
+    assert!(protos.len() >= 1);
+    assert_eq!(&*protos[0], b"h2");
+    if protos.len() >= 2 {
+        assert_eq!(&*protos[1], b"http/1.1");
+    }
+
+    // CipherSuite order should prefer AES_128_GCM, then CHACHA20_POLY1305 if present
+    let suites = &ch.cipher_suites;
+    let pos_aes128 = suites
+        .iter()
+        .position(|s| *s == CipherSuite::TLS13_AES_128_GCM_SHA256);
+    let pos_chacha = suites
+        .iter()
+        .position(|s| *s == CipherSuite::TLS13_CHACHA20_POLY1305_SHA256);
+    if let (Some(a), Some(c)) = (pos_aes128, pos_chacha) {
+        assert!(
+            a < c,
+            "AES_128_GCM should precede CHACHA20_POLY1305 in Chrome preset"
+        );
+    }
+}

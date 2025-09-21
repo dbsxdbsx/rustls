@@ -8,6 +8,8 @@ Rustls is a modern TLS library written in Rust.
 
 # Status
 
+This is a fork of the official Rustls library with enhanced ClientHello fingerprinting capabilities for VLESS REALITY protocol support. The fork maintains full API compatibility with upstream Rustls while adding optional customizable ClientHello construction.
+
 Rustls is used in production at many organizations and projects. We aim to maintain
 reasonable API surface stability but the API may evolve as we make changes to accommodate
 new features or performance improvements.
@@ -25,6 +27,45 @@ If you'd like to help out, please see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 The maintainers pronounce "rustls" as rustles (rather than rust-TLS), but we don't feel strongly
 about it.
+
+## Fork Features
+
+This fork adds optional ClientHello fingerprinting capabilities for VLESS REALITY protocol support:
+
+- [x] HelloPolicy framework for customizable ClientHello construction
+- [x] BrowserLikePolicy with ChromeLatest preset
+- [x] ALPN ordering and cipher suite preference control
+- [x] Extension ordering seed for deterministic fingerprinting
+- [ ] Additional browser presets (Firefox, Safari, Edge)
+- [ ] GREASE injection and padding strategies
+- [ ] Key share and signature algorithm customization
+
+## Usage Examples
+
+Enable Chrome-like ClientHello fingerprinting:
+
+```rust
+use rustls::client::{ClientConfig, BrowserLikePolicy};
+use std::sync::Arc;
+
+let mut config = ClientConfig::builder_with_provider(provider.into())
+    .with_root_certificates(roots)
+    .with_no_client_auth()
+    .unwrap();
+
+// Apply Chrome fingerprint preset
+config = config.with_hello_policy(
+    Arc::new(BrowserLikePolicy::chrome_latest())
+);
+```
+
+When no HelloPolicy is set, the behavior is identical to upstream Rustls.
+
+## Notes
+
+- **Windows Build Requirements**: When using the `aws-lc-rs` crypto provider on Windows, you may need NASM installed. To avoid this requirement, use the environment variable `AWS_LC_SYS_PREBUILT_NASM=1` when building/testing.
+- **API Compatibility**: This fork maintains full backward compatibility with upstream Rustls. All existing code continues to work without changes.
+- **Documentation**: See [VLESS REALITY Implementation Guide](.doc/rustls_fork_for_vless_reality.md) for detailed technical specifications.
 
 ## Changelog
 

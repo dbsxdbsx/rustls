@@ -277,6 +277,9 @@ pub struct ClientConfig {
 
     /// How to offer Encrypted Client Hello (ECH). The default is to not offer ECH.
     pub(super) ech_mode: Option<EchMode>,
+
+    /// Optional ClientHello policy (runtime-pluggable). When `None`, default upstream behavior applies.
+    pub(super) hello_policy: Option<Arc<dyn super::hello_policy::HelloPolicy>>,
 }
 
 impl ClientConfig {
@@ -393,6 +396,23 @@ impl ClientConfig {
         self.time_provider
             .current_time()
             .ok_or(Error::FailedToGetCurrentTime)
+    }
+
+    /// Attach a ClientHello policy. When set, the policy may influence ClientHello shape.
+    pub fn with_hello_policy(
+        mut self,
+        policy: alloc::sync::Arc<dyn super::hello_policy::HelloPolicy>,
+    ) -> Self {
+        self.hello_policy = Some(policy);
+        self
+    }
+
+    /// Set or clear the ClientHello policy in-place.
+    pub fn set_hello_policy(
+        &mut self,
+        policy: Option<alloc::sync::Arc<dyn super::hello_policy::HelloPolicy>>,
+    ) {
+        self.hello_policy = policy;
     }
 }
 
