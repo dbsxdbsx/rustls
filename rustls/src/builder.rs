@@ -177,6 +177,15 @@ pub struct WantsVerifier {
     pub(crate) client_ech_mode: Option<EchMode>,
 }
 
+impl<Side: ConfigSide> ConfigBuilder<Side, WantsVerifier> {
+    /// Compatibility shim: align with upstream API used by ecosystem crates (e.g. hickory-proto,
+    /// tokio-rustls). Our provider already sets safe defaults; this is a no-op that preserves
+    /// the builder chaining and satisfies feature-gated call sites.
+    pub fn with_safe_default_protocol_versions(self) -> Result<Self, crate::error::Error> {
+        Ok(self)
+    }
+}
+
 /// Helper trait to abstract [`ConfigBuilder`] over building a [`ClientConfig`] or [`ServerConfig`].
 ///
 /// [`ClientConfig`]: crate::ClientConfig

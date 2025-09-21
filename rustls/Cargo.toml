@@ -24,6 +24,10 @@
   ring           =["dep:ring", "webpki/ring"]
   std            =["webpki/std", "pki-types/std", "once_cell/std"]
   zlib           =["dep:zlib-rs"]
+  aws_lc_rs      =["aws-lc-rs"]
+
+  tls12  =[]
+  logging=["log"]
 
 [dependencies]
   aws-lc-rs          ={workspace=true, optional=true}
