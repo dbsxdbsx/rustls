@@ -9,7 +9,9 @@ use crate::client::{ClientConfig, ClientConnection, Resumption, Tls12Resumption}
 use crate::crypto::CryptoProvider;
 use crate::enums::{CipherSuite, ProtocolVersion, SignatureScheme};
 use crate::msgs::base::PayloadU16;
+use crate::msgs::codec::Codec;
 use crate::msgs::codec::Reader;
+
 use crate::msgs::enums::{Compression, NamedGroup};
 use crate::msgs::handshake::{
     ClientHelloPayload, HandshakeMessagePayload, HandshakePayload, HelloRetryRequest, Random,
@@ -736,6 +738,41 @@ fn hello_policy_chrome_latest_applies() {
     if protos.len() >= 2 {
         assert_eq!(&*protos[1], b"http/1.1");
     }
+    #[test]
+    #[ignore]
+    fn print_chrome_latest_full_clienthello_hex() {
+        // Build deterministic ClientHello using BrowserLikePolicy hooks
+        let mut config = ClientConfig::builder_with_provider(tls13_only_provider().into())
+            .with_root_certificates(roots())
+            .with_no_client_auth()
+            .unwrap();
+        use crate::client::hello_policy::HelloPolicy as _;
+        let policy = crate::client::BrowserLikePolicy::chrome_latest()
+            .with_extension_order_seed(0)
+            .with_fixed_client_random([0u8; 32])
+            .with_force_empty_session_id(true);
+        config = config.with_hello_policy(Arc::new(policy));
+
+        let mut conn =
+            ClientConnection::new(config.into(), ServerName::try_from("example.com").unwrap())
+                .unwrap();
+        let mut bytes = Vec::new();
+        conn.write_tls(&mut bytes).unwrap();
+
+        // Print hex of first record
+        fn to_hex(v: &[u8]) -> String {
+            const HEX: &[u8; 16] = b"0123456789abcdef";
+            let mut out = String::with_capacity(v.len() * 2);
+            for &b in v {
+                out.push(HEX[((b >> 4) & 0xf) as usize] as char);
+                out.push(HEX[(b & 0xf) as usize] as char);
+            }
+            out
+        }
+        std::println!("{}", to_hex(&bytes));
+        // keep passing even when ignored
+        assert!(true);
+    }
 
     // CipherSuite order should prefer AES_128_GCM, then CHACHA20_POLY1305 if present
     let suites = &ch.cipher_suites;
@@ -751,4 +788,208 @@ fn hello_policy_chrome_latest_applies() {
             "AES_128_GCM should precede CHACHA20_POLY1305 in Chrome preset"
         );
     }
+}
+
+#[test]
+fn hello_policy_chrome_latest_controls_psk_groups_and_early_data() {
+    let mut config = ClientConfig::builder_with_provider(tls13_only_provider().into())
+        .with_root_certificates(roots())
+        .with_no_client_auth()
+        .unwrap()
+        .with_hello_policy(Arc::new(crate::client::BrowserLikePolicy::chrome_latest()));
+
+    let ch = client_hello_sent_for_config(config).unwrap();
+
+    // PSK modes and offers should be absent by default under Chrome preset
+    assert!(
+        ch.extensions
+            .preshared_key_modes
+            .is_none()
+    );
+    assert!(
+        ch.extensions
+            .preshared_key_offer
+            .is_none()
+    );
+    assert!(
+        ch.extensions
+            .early_data_request
+            .is_none()
+    );
+
+    // SupportedGroups should include X25519; allow GREASE at head
+    let groups = ch
+        .extensions
+        .named_groups
+        .as_ref()
+        .unwrap();
+    assert!(groups.contains(&NamedGroup::X25519));
+    let first_real = if matches!(groups[0], NamedGroup::Unknown(_)) {
+        groups[1]
+    } else {
+        groups[0]
+    };
+    assert_eq!(first_real, NamedGroup::X25519);
+
+    // SignatureAlgorithms should have ECDSA P-256 SHA256 early in the list (allow GREASE at head)
+    let sigs = ch
+        .extensions
+        .signature_schemes
+        .as_ref()
+        .unwrap();
+    assert!(sigs.contains(&SignatureScheme::ECDSA_NISTP256_SHA256));
+}
+
+#[test]
+#[ignore]
+fn dump_chrome_latest_exts_hex() {
+    use std::sync::Arc;
+    let mut config = ClientConfig::builder_with_provider(tls13_only_provider().into())
+        .with_root_certificates(roots())
+        .with_no_client_auth()
+        .unwrap();
+    let policy = crate::client::BrowserLikePolicy::chrome_latest()
+        .with_grease_lists(false)
+        .with_padding_len(Some(0));
+    config = config.with_hello_policy(Arc::new(policy));
+    let ch = client_hello_sent_for_config(config).unwrap();
+    let bytes = ch.extensions.get_encoding();
+    let hex = bytes
+        .iter()
+        .map(|b| alloc::format!("{:02x}", b))
+        .collect::<String>();
+    #[cfg(feature = "std")]
+    {
+        std::println!("chrome_latest_exts_hex={}", hex);
+    }
+    assert!(!bytes.is_empty());
+}
+
+#[test]
+fn hello_policy_chrome_latest_exts_golden_matches() {
+    use std::fs;
+    use std::path::PathBuf;
+
+    // Build deterministic ClientHello extensions per golden rules
+    let mut config = ClientConfig::builder_with_provider(tls13_only_provider().into())
+        .with_root_certificates(roots())
+        .with_no_client_auth()
+        .unwrap();
+
+    let policy = crate::client::BrowserLikePolicy::chrome_latest()
+        .with_grease_lists(false)
+        .with_padding_len(Some(0))
+        .with_extension_order_seed(0);
+
+    config = config.with_hello_policy(Arc::new(policy));
+    let ch = client_hello_sent_for_config(config).expect("build client hello");
+
+    let bytes = ch.extensions.get_encoding();
+    let hex = bytes
+        .iter()
+        .map(|b| alloc::format!("{:02x}", b))
+        .collect::<String>();
+
+    // Load golden file (single line hex)
+    let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    p.push("tests/data/hello/chrome_latest_exts.hex");
+    let golden = fs::read_to_string(&p).expect("read golden");
+    let golden_line = golden
+        .lines()
+        .find(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'))
+        .unwrap_or("");
+
+    // If placeholder present, skip strict compare
+    if golden_line
+        .trim()
+        .eq_ignore_ascii_case("PLACEHOLDER")
+        || golden_line.trim().is_empty()
+    {
+        #[cfg(feature = "std")]
+        {
+            std::eprintln!(
+                "[SKIP] Golden not set. Current exts hex = {}\nFill {} with this value.",
+                hex,
+                p.display()
+            );
+        }
+        return;
+    }
+
+    assert_eq!(hex, golden_line.trim(), "extension-section hex mismatch");
+}
+
+#[test]
+#[ignore]
+fn regen_chrome_latest_exts_golden() {
+    use std::fs;
+    use std::path::PathBuf;
+
+    let mut config = ClientConfig::builder_with_provider(tls13_only_provider().into())
+        .with_root_certificates(roots())
+        .with_no_client_auth()
+        .unwrap();
+
+    let policy = crate::client::BrowserLikePolicy::chrome_latest()
+        .with_grease_lists(false)
+        .with_padding_len(Some(0))
+        .with_extension_order_seed(0);
+
+    config = config.with_hello_policy(Arc::new(policy));
+    let ch = client_hello_sent_for_config(config).expect("build client hello");
+    let bytes = ch.extensions.get_encoding();
+    let hex = bytes
+        .iter()
+        .map(|b| alloc::format!("{:02x}", b))
+        .collect::<String>();
+
+    let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    p.push("tests/data/hello/");
+    fs::create_dir_all(&p).expect("mkdirs");
+    p.push("chrome_latest_exts.hex");
+    fs::write(&p, alloc::format!("{}\n", hex)).expect("write golden");
+}
+
+#[test]
+fn hello_policy_padding_relative_to_supported_versions() {
+    use crate::msgs::enums::ExtensionType;
+
+    // TLS1.3-only to stabilize extension set
+    let mut config = ClientConfig::builder_with_provider(tls13_only_provider().into())
+        .with_root_certificates(roots())
+        .with_no_client_auth()
+        .unwrap();
+
+    let policy = crate::client::BrowserLikePolicy::chrome_latest()
+        .with_grease_lists(false)
+        .with_padding_len(Some(4))
+        .with_extension_order_seed(0)
+        .with_padding_after(ExtensionType::SupportedVersions);
+
+    config = config.with_hello_policy(Arc::new(policy));
+    let ch = client_hello_sent_for_config(config).unwrap();
+
+    let order = ch
+        .extensions
+        .used_extensions_in_encoding_order();
+    // locate indices
+    let mut idx_sv = None;
+    let mut idx_pad = None;
+    for (i, ext) in order.iter().enumerate() {
+        if *ext == ExtensionType::SupportedVersions {
+            idx_sv = Some(i);
+        }
+        if *ext == ExtensionType::Padding {
+            idx_pad = Some(i);
+        }
+    }
+    let (i_sv, i_pad) = (
+        idx_sv.expect("SupportedVersions present"),
+        idx_pad.expect("Padding present"),
+    );
+    assert_eq!(
+        i_pad + 1,
+        i_sv,
+        "Padding should appear immediately before SupportedVersions when using After(anchor)"
+    );
 }

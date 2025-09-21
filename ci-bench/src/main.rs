@@ -18,7 +18,10 @@ use core::mem;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
+#[cfg(unix)]
 use std::os::fd::{AsRawFd, FromRawFd};
+#[cfg(windows)]
+use std::os::windows::io::{AsRawHandle, FromRawHandle};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
@@ -159,10 +162,16 @@ fn main() -> anyhow::Result<()> {
             // operations through `File`, which is unbuffered. The `stdin_lock` and `stdout_lock`
             // variables are kept around to ensure exclusive access.
 
-            // safety: the file descriptor is valid and we have exclusive access to it for the
+            // safety: the underlying handle/fd is valid and we have exclusive access to it for the
             // duration of the lock
+            #[cfg(unix)]
             let mut stdin = unsafe { File::from_raw_fd(stdin_lock.as_raw_fd()) };
+            #[cfg(unix)]
             let mut stdout = unsafe { File::from_raw_fd(stdout_lock.as_raw_fd()) };
+            #[cfg(windows)]
+            let mut stdin = unsafe { File::from_raw_handle(stdin_lock.as_raw_handle()) };
+            #[cfg(windows)]
+            let mut stdout = unsafe { File::from_raw_handle(stdout_lock.as_raw_handle()) };
 
             let handshake_buf = &mut [0u8; DEFAULT_BUFFER_SIZE];
             let resumption_kind = bench.kind.resumption_kind();

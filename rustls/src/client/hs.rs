@@ -1,4 +1,15 @@
 use alloc::borrow::ToOwned;
+// Minimal GREASE chooser for lists (RFC 8701). Deterministic by seed.
+#[inline]
+fn choose_grease(seed: u16) -> u16 {
+    const GREASE: [u16; 16] = [
+        0x0a0a, 0x1a1a, 0x2a2a, 0x3a3a, 0x4a4a, 0x5a5a, 0x6a6a, 0x7a7a, 0x8a8a, 0x9a9a, 0xaaaa,
+        0xbaba, 0xcaca, 0xdada, 0xeaea, 0xfafa,
+    ];
+    let idx = (seed as usize) % GREASE.len();
+    GREASE[idx]
+}
+
 use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -55,7 +66,7 @@ pub(crate) struct ExpectServerHello {
     //
     // If this is `None` then we do not support early data.
     pub(super) early_data_key_schedule: Option<KeyScheduleEarly>,
-    pub(super) offered_key_share: Option<Box<dyn ActiveKeyExchange>>,
+    pub(super) offered_key_share: Option<Vec<Box<dyn ActiveKeyExchange>>>,
     pub(super) suite: Option<SupportedCipherSuite>,
     pub(super) ech_state: Option<EchState>,
 }
@@ -243,22 +254,32 @@ impl ExpectServerHelloOrHelloRetryRequest {
 
         cx.common.check_aligned_handshake()?;
 
-        // We always send a key share when TLS 1.3 is enabled.
-        let offered_key_share = self.next.offered_key_share.unwrap();
+        // We always send key shares when TLS 1.3 is enabled.
+        let offered_key_shares = self.next.offered_key_share.unwrap();
 
         // A retry request is illegal if it contains no cookie and asks for
-        // retry of a group we already sent.
+        // retry of a group we already sent (either primary or hybrid component group).
         let config = &self.next.input.config;
 
         if let (None, Some(req_group)) = (&hrr.cookie, hrr.key_share) {
-            let offered_hybrid = offered_key_share
-                .hybrid_component()
-                .and_then(|(group_name, _)| {
-                    config.find_kx_group(group_name, ProtocolVersion::TLSv1_3)
-                })
-                .map(|skxg| skxg.name());
-
-            if req_group == offered_key_share.group() || Some(req_group) == offered_hybrid {
+            let mut illegal = false;
+            for ks in offered_key_shares.iter() {
+                if req_group == ks.group() {
+                    illegal = true;
+                    break;
+                }
+                if let Some((component_group, _)) = ks.hybrid_component() {
+                    if let Some(skxg) =
+                        config.find_kx_group(component_group, ProtocolVersion::TLSv1_3)
+                    {
+                        if req_group == skxg.name() {
+                            illegal = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if illegal {
                 return Err({
                     cx.common.send_fatal_alert(
                         AlertDescription::IllegalParameter,
@@ -387,24 +408,36 @@ impl ExpectServerHelloOrHelloRetryRequest {
         }
 
         let key_share = match hrr.key_share {
-            Some(group) if group != offered_key_share.group() => {
-                let Some(skxg) = config.find_kx_group(group, ProtocolVersion::TLSv1_3) else {
-                    return Err(cx.common.send_fatal_alert(
-                        AlertDescription::IllegalParameter,
-                        PeerMisbehaved::IllegalHelloRetryRequestWithUnofferedNamedGroup,
-                    ));
-                };
-
-                cx.common.kx_state = KxState::Start(skxg);
-                skxg.start()?
+            Some(group) => {
+                if let Some(idx) = offered_key_shares
+                    .iter()
+                    .position(|ks| ks.group() == group)
+                {
+                    offered_key_shares
+                        .into_iter()
+                        .nth(idx)
+                        .unwrap()
+                } else {
+                    let Some(skxg) = config.find_kx_group(group, ProtocolVersion::TLSv1_3) else {
+                        return Err(cx.common.send_fatal_alert(
+                            AlertDescription::IllegalParameter,
+                            PeerMisbehaved::IllegalHelloRetryRequestWithUnofferedNamedGroup,
+                        ));
+                    };
+                    cx.common.kx_state = KxState::Start(skxg);
+                    skxg.start()?
+                }
             }
-            _ => offered_key_share,
+            None => offered_key_shares
+                .into_iter()
+                .next()
+                .unwrap(),
         };
 
         emit_client_hello_for_retry(
             transcript_buffer,
             Some(hrr),
-            Some(key_share),
+            Some(alloc::vec![key_share]),
             self.extra_exts,
             Some(cs),
             self.next.input,
@@ -490,12 +523,25 @@ impl ClientHelloInput {
 
         // https://tools.ietf.org/html/rfc8446#appendix-D.4
         // https://tools.ietf.org/html/rfc9001#section-8.4
-        let session_id = match session_id {
+        let mut session_id = match session_id {
             Some(session_id) => session_id,
             None if cx.common.is_quic() => SessionId::empty(),
             None if !config.supports_version(ProtocolVersion::TLSv1_3) => SessionId::empty(),
             None => SessionId::random(config.provider.secure_random)?,
         };
+        // Allow HelloPolicy to stabilize session_id for golden samples
+        if let Some(policy) = config.hello_policy.as_ref() {
+            use crate::client::hello_policy::HelloPolicyContext;
+            let ctx = HelloPolicyContext {
+                tls12: config.supports_version(ProtocolVersion::TLSv1_2),
+                tls13: config.supports_version(ProtocolVersion::TLSv1_3),
+                is_quic: cx.common.is_quic(),
+                sni: &[],
+            };
+            if policy.force_empty_session_id(&ctx) {
+                session_id = SessionId::empty();
+            }
+        }
 
         // Prepare ALPN and extension order seed, possibly influenced by a HelloPolicy
         let mut alpn = extra_exts
@@ -515,7 +561,7 @@ impl ClientHelloInput {
             };
 
             // Current ALPN as bytes
-            let current: alloc::vec::Vec<alloc::vec::Vec<u8>> = alpn
+            let current: Vec<Vec<u8>> = alpn
                 .iter()
                 .map(|p| p.to_vec())
                 .collect();
@@ -529,7 +575,7 @@ impl ClientHelloInput {
                         .collect();
                 }
                 AlpnDecision::Filter(order) => {
-                    let mut filtered = alloc::vec::Vec::with_capacity(alpn.len());
+                    let mut filtered = Vec::with_capacity(alpn.len());
                     for want in order {
                         for have in &alpn {
                             if have.as_ref() == want.as_slice() {
@@ -547,9 +593,24 @@ impl ClientHelloInput {
 
         let hello = ClientHelloDetails::new(alpn, ext_seed);
 
+        // Generate ClientHello.random, allowing HelloPolicy to override for tests
+        let mut random = Random::new(config.provider.secure_random)?;
+        if let Some(policy) = config.hello_policy.as_ref() {
+            use crate::client::hello_policy::HelloPolicyContext;
+            let ctx = HelloPolicyContext {
+                tls12: config.supports_version(ProtocolVersion::TLSv1_2),
+                tls13: config.supports_version(ProtocolVersion::TLSv1_3),
+                is_quic: cx.common.is_quic(),
+                sni: &[],
+            };
+            if let Some(bytes) = policy.fixed_client_random(&ctx) {
+                random = Random::from(bytes);
+            }
+        }
+
         Ok(Self {
             resuming,
-            random: Random::new(config.provider.secure_random)?,
+            random,
             sent_tls13_fake_ccs: false,
             hello,
             session_id,
@@ -574,7 +635,7 @@ impl ClientHelloInput {
         }
 
         let key_share = if self.config.needs_key_share() {
-            Some(tls13::initial_key_share(
+            Some(tls13::initial_key_shares(
                 &self.config,
                 &self.server_name,
                 &mut cx.common.kx_state,
@@ -611,7 +672,7 @@ impl ClientHelloInput {
 fn emit_client_hello_for_retry(
     mut transcript_buffer: HandshakeHashBuffer,
     retryreq: Option<&HelloRetryRequest>,
-    key_share: Option<Box<dyn ActiveKeyExchange>>,
+    key_share: Option<Vec<Box<dyn ActiveKeyExchange>>>,
     extra_exts: ClientExtensionsInput<'static>,
     suite: Option<SupportedCipherSuite>,
     mut input: ClientHelloInput,
@@ -657,7 +718,12 @@ fn emit_client_hello_for_retry(
             true => Some(CertificateStatusRequest::build_ocsp()),
             false => None,
         },
-        protocols: extra_exts.protocols.clone(),
+        // Use ALPN decided earlier (by HelloPolicy) if any
+        protocols: if input.hello.alpn_protocols.is_empty() {
+            None
+        } else {
+            Some(input.hello.alpn_protocols.clone())
+        },
         ..Default::default()
     });
 
@@ -668,6 +734,91 @@ fn emit_client_hello_for_retry(
     if supported_versions.tls13 {
         if let Some(cas_extension) = config.verifier.root_hint_subjects() {
             exts.certificate_authority_names = Some(cas_extension.to_vec());
+        }
+        // Apply HelloPolicy to groups/signatures and padding where applicable
+        if let Some(policy) = config.hello_policy.as_ref() {
+            use crate::client::hello_policy::HelloPolicyContext;
+            let ctx = HelloPolicyContext {
+                tls12: supported_versions.tls12,
+                tls13: supported_versions.tls13,
+                is_quic: cx.common.is_quic(),
+                sni: &[],
+            };
+            if let Some(current) = exts.named_groups.as_ref() {
+                if let Some(mut desired) = policy.supported_groups(current, &ctx) {
+                    // keep only those usable for any offered version
+                    desired.retain(|g| supported_versions.any(|v| g.usable_for_version(v)));
+                    if !desired.is_empty() {
+                        exts.named_groups = Some(desired);
+                    }
+                }
+            }
+            if let Some(current) = exts.signature_schemes.as_ref() {
+                if let Some(mut desired) = policy.signature_algorithms(current, &ctx) {
+                    // keep only those allowed by verifier
+                    let allowed = exts.signature_schemes.as_ref().unwrap();
+                    desired.retain(|s| allowed.contains(s));
+                    if !desired.is_empty() {
+                        exts.signature_schemes = Some(desired);
+                    }
+                }
+            }
+            // Insert GREASE values into lists if enabled
+            if policy.grease_lists(&ctx) {
+                let count = core::cmp::min(1, policy.grease_list_count(&ctx));
+                let pos = policy.grease_list_position(&ctx);
+                for i in 0..count {
+                    let grease = choose_grease(policy.extension_order_seed(i as u16, &ctx));
+                    if let Some(ref mut groups) = exts.named_groups {
+                        let g = crate::msgs::enums::NamedGroup::from(grease);
+                        if !groups.contains(&g) {
+                            match pos {
+                                crate::client::hello_policy::ListPosition::Head => {
+                                    groups.insert(0, g)
+                                }
+                                crate::client::hello_policy::ListPosition::Tail => groups.push(g),
+                            };
+                        }
+                    }
+                    if let Some(ref mut sigs) = exts.signature_schemes {
+                        let s = crate::enums::SignatureScheme::from(grease);
+                        if !sigs.contains(&s) {
+                            match pos {
+                                crate::client::hello_policy::ListPosition::Head => {
+                                    sigs.insert(0, s)
+                                }
+                                crate::client::hello_policy::ListPosition::Tail => sigs.push(s),
+                            };
+                        }
+                    }
+                }
+            }
+            if supported_versions.tls13 {
+                if let Some(len) = policy.tls13_padding_len(&ctx) {
+                    if len > 0 {
+                        exts.padding = Some(crate::msgs::base::PayloadU16::new(vec![0u8; len]));
+                        match policy.tls13_padding_position(&ctx) {
+                            crate::client::hello_policy::PaddingPosition::Default => {
+                                // leave in randomized block
+                            }
+                            crate::client::hello_policy::PaddingPosition::Tail => {
+                                exts.contiguous_extensions
+                                    .push(ExtensionType::Padding);
+                            }
+                            crate::client::hello_policy::PaddingPosition::Before(anchor) => {
+                                exts.contiguous_extensions.push(anchor);
+                                exts.contiguous_extensions
+                                    .push(ExtensionType::Padding);
+                            }
+                            crate::client::hello_policy::PaddingPosition::After(anchor) => {
+                                exts.contiguous_extensions
+                                    .push(ExtensionType::Padding);
+                                exts.contiguous_extensions.push(anchor);
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -699,21 +850,22 @@ fn emit_client_hello_for_retry(
         (None, false) => None,
     };
 
-    if let Some(key_share) = &key_share {
+    if let Some(key_shares) = &key_share {
         debug_assert!(supported_versions.tls13);
-        let mut shares = vec![KeyShareEntry::new(key_share.group(), key_share.pub_key())];
+        let mut shares = Vec::with_capacity(key_shares.len());
+        for ks in key_shares.iter() {
+            shares.push(KeyShareEntry::new(ks.group(), ks.pub_key()));
+        }
 
-        if !retryreq
-            .map(|rr| rr.key_share.is_some())
-            .unwrap_or_default()
+        // If we only offered one share, keep previous hybrid second-share behavior
+        if key_shares.len() == 1
+            && !retryreq
+                .map(|rr| rr.key_share.is_some())
+                .unwrap_or_default()
         {
-            // Only for the initial client hello, or a HRR that does not specify a kx group,
-            // see if we can send a second KeyShare for "free".  We only do this if the same
-            // algorithm is also supported separately by our provider for this version
-            // (`find_kx_group` looks that up).
+            let ks = &key_shares[0];
             if let Some((component_group, component_share)) =
-                key_share
-                    .hybrid_component()
+                ks.hybrid_component()
                     .filter(|(group, _)| {
                         config
                             .find_kx_group(*group, ProtocolVersion::TLSv1_3)
@@ -721,6 +873,26 @@ fn emit_client_hello_for_retry(
                     })
             {
                 shares.push(KeyShareEntry::new(component_group, component_share));
+            }
+        }
+
+        // Apply HelloPolicy for KeyShare GREASE
+        if let Some(policy) = config.hello_policy.as_ref() {
+            use crate::client::hello_policy::HelloPolicyContext;
+            let ctx = HelloPolicyContext {
+                tls12: supported_versions.tls12,
+                tls13: supported_versions.tls13,
+                is_quic: cx.common.is_quic(),
+                sni: &[],
+            };
+            if policy.grease_key_share(&ctx) {
+                // Add a GREASE KeyShare entry with dummy public key
+                let grease_group = choose_grease(policy.extension_order_seed(0x8000, &ctx));
+                let grease_key = vec![0u8; 32]; // Dummy public key
+                shares.push(KeyShareEntry::new(
+                    crate::msgs::enums::NamedGroup::from(grease_group),
+                    grease_key,
+                ));
             }
         }
 
@@ -738,6 +910,18 @@ fn emit_client_hello_for_retry(
             psk: false,
             psk_dhe: true,
         });
+        if let Some(policy) = config.hello_policy.as_ref() {
+            use crate::client::hello_policy::HelloPolicyContext;
+            let ctx = HelloPolicyContext {
+                tls12: supported_versions.tls12,
+                tls13: supported_versions.tls13,
+                is_quic: cx.common.is_quic(),
+                sni: &[],
+            };
+            if policy.disable_psk(&ctx) {
+                exts.preshared_key_modes = None;
+            }
+        }
     }
 
     input.hello.offered_cert_compression =
@@ -788,9 +972,129 @@ fn emit_client_hello_for_retry(
     // Do we have a SessionID or ticket cached for this host?
     let tls13_session = prepare_resumption(&input.resuming, &mut exts, suite, cx, config);
 
+    // Policy may disable PSK offer and early-data even if a session exists
+    if let Some(policy) = config.hello_policy.as_ref() {
+        use crate::client::hello_policy::HelloPolicyContext;
+        let ctx = HelloPolicyContext {
+            tls12: supported_versions.tls12,
+            tls13: supported_versions.tls13,
+            is_quic: cx.common.is_quic(),
+            sni: &[],
+        };
+        if policy.disable_psk(&ctx) {
+            exts.preshared_key_offer = None;
+        }
+        if policy.disable_early_data(&ctx) {
+            exts.early_data_request = None;
+            cx.data.early_data.rejected();
+            cx.common.early_traffic = false;
+        }
+        // Re-apply padding adjacency just before encoding to ensure it persists.
+        if supported_versions.tls13 {
+            if let Some(len) = policy.tls13_padding_len(&ctx) {
+                if len > 0 {
+                    match policy.tls13_padding_position(&ctx) {
+                        crate::client::hello_policy::PaddingPosition::Default => {}
+                        crate::client::hello_policy::PaddingPosition::Tail => {
+                            if !exts
+                                .contiguous_extensions
+                                .contains(&ExtensionType::Padding)
+                            {
+                                exts.contiguous_extensions
+                                    .push(ExtensionType::Padding);
+                            }
+                        }
+                        crate::client::hello_policy::PaddingPosition::Before(anchor) => {
+                            // Ensure [anchor, padding]
+                            if !exts
+                                .contiguous_extensions
+                                .contains(&anchor)
+                            {
+                                exts.contiguous_extensions.push(anchor);
+                            }
+                            if !exts
+                                .contiguous_extensions
+                                .contains(&ExtensionType::Padding)
+                            {
+                                exts.contiguous_extensions
+                                    .push(ExtensionType::Padding);
+                            }
+                        }
+                        crate::client::hello_policy::PaddingPosition::After(anchor) => {
+                            // Ensure [padding, anchor]
+                            if !exts
+                                .contiguous_extensions
+                                .contains(&ExtensionType::Padding)
+                            {
+                                exts.contiguous_extensions
+                                    .push(ExtensionType::Padding);
+                            }
+                            if !exts
+                                .contiguous_extensions
+                                .contains(&anchor)
+                            {
+                                exts.contiguous_extensions.push(anchor);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Extensions MAY be randomized
     // but they also need to keep the same order as the previous ClientHello
     exts.order_seed = input.hello.extension_order_seed;
+
+    // Apply HelloPolicy for Extension-type GREASE and GREASE extension values
+    if supported_versions.tls13 {
+        if let Some(policy) = config.hello_policy.as_ref() {
+            use crate::client::hello_policy::HelloPolicyContext;
+            let ctx = HelloPolicyContext {
+                tls12: supported_versions.tls12,
+                tls13: supported_versions.tls13,
+                is_quic: cx.common.is_quic(),
+                sni: &[],
+            };
+
+            // Add GREASE extension types with optional values
+            if policy.grease_extensions(&ctx) {
+                // Add 1-2 GREASE extensions with appropriate values
+                let grease_ext1 = choose_grease(policy.extension_order_seed(0x1000, &ctx));
+                if policy.grease_extension_values(&ctx) {
+                    // Add GREASE extension with a value
+                    exts.grease_extensions.push((
+                        ExtensionType::from(grease_ext1),
+                        Some(crate::msgs::base::PayloadU16::new(vec![0u8; 8] as Vec<u8>)), // GREASE value
+                    ));
+                } else {
+                    // Add GREASE extension without value
+                    exts.grease_extensions.push((
+                        ExtensionType::from(grease_ext1),
+                        None,
+                    ));
+                }
+
+                // Optionally add a second GREASE extension
+                if policy.grease_list_count(&ctx) > 1 {
+                    let grease_ext2 = choose_grease(policy.extension_order_seed(0x2000, &ctx));
+                    if grease_ext2 != grease_ext1 {
+                        if policy.grease_extension_values(&ctx) {
+                            exts.grease_extensions.push((
+                                ExtensionType::from(grease_ext2),
+                                Some(crate::msgs::base::PayloadU16::new(vec![0u8; 16] as Vec<u8>)), // Different GREASE value
+                            ));
+                        } else {
+                            exts.grease_extensions.push((
+                                ExtensionType::from(grease_ext2),
+                                None,
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     let mut cipher_suites: Vec<_> = config
         .provider
@@ -812,7 +1116,7 @@ fn emit_client_hello_for_retry(
         if let Some(mut desired) = policy.cipher_suites(&cipher_suites, &ctx) {
             // Keep only suites that are actually supported for this protocol
             let allowed = &cipher_suites;
-            let mut reordered = alloc::vec::Vec::with_capacity(allowed.len());
+            let mut reordered = Vec::with_capacity(allowed.len());
             for s in desired.drain(..) {
                 if allowed.contains(&s) && !reordered.contains(&s) {
                     reordered.push(s);
@@ -1011,7 +1315,22 @@ fn prepare_resumption<'a>(
                 && config.resumption.tls12_resumption == Tls12Resumption::SessionIdOrTickets
             {
                 // If we don't have a ticket, request one.
-                exts.session_ticket = Some(ClientSessionTicket::Request);
+                let mut allow = true;
+                if let Some(policy) = config.hello_policy.as_ref() {
+                    use crate::client::hello_policy::HelloPolicyContext;
+                    let ctx = HelloPolicyContext {
+                        tls12: true,
+                        tls13: config.supports_version(ProtocolVersion::TLSv1_3),
+                        is_quic: cx.common.is_quic(),
+                        sni: &[],
+                    };
+                    if policy.disable_session_ticket(&ctx) {
+                        allow = false;
+                    }
+                }
+                if allow {
+                    exts.session_ticket = Some(ClientSessionTicket::Request);
+                }
             }
             return None;
         }

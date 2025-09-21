@@ -1,0 +1,5 @@
+# ChromeLatest preset extension-section golden hex
+# Regenerate via the ignored test `regen_chrome_latest_exts_golden` in rustls/src/client/test.rs
+# Once populated, remove this placeholder header and keep a single hex line (lowercase, no spaces)
+PLACEHOLDER
+

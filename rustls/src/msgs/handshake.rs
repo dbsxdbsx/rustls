@@ -861,6 +861,10 @@ extension_struct! {
         ExtensionType::ALProtocolNegotiation =>
             pub(crate) protocols: Option<Vec<ProtocolName>>,
 
+        /// Padding (RFC7685)
+        ExtensionType::Padding =>
+            pub(crate) padding: Option<PayloadU16>,
+
         /// Available client certificate types (RFC7250)
         ExtensionType::ClientCertificateType =>
             pub(crate) client_certificate_types: Option<Vec<CertificateType>>,
@@ -930,6 +934,9 @@ extension_struct! {
 
         /// Extensions that must appear contiguously.
         pub(crate) contiguous_extensions: Vec<ExtensionType>,
+
+        /// GREASE extensions (RFC 8701) - list of (extension_type, optional_value)
+        pub(crate) grease_extensions: Vec<(ExtensionType, Option<PayloadU16>)>,
     }
 }
 
@@ -942,6 +949,7 @@ impl ClientExtensions<'_> {
             ec_point_formats,
             signature_schemes,
             protocols,
+            padding,
             client_certificate_types,
             server_certificate_types,
             extended_master_secret_request,
@@ -960,6 +968,7 @@ impl ClientExtensions<'_> {
             encrypted_client_hello_outer,
             order_seed,
             contiguous_extensions,
+            grease_extensions,
         } = self;
         ClientExtensions {
             server_name: server_name.map(|x| x.into_owned()),
@@ -986,12 +995,55 @@ impl ClientExtensions<'_> {
             encrypted_client_hello_outer,
             order_seed,
             contiguous_extensions,
+            grease_extensions,
+            padding,
         }
     }
 
     pub(crate) fn used_extensions_in_encoding_order(&self) -> Vec<ExtensionType> {
         let mut exts = self.order_insensitive_extensions_in_random_order();
-        exts.extend(&self.contiguous_extensions);
+
+        if !self.contiguous_extensions.is_empty() {
+            if self.contiguous_extensions.len() == 1 {
+                // Back-compat: preserve previous behavior (append) if there's only one
+                // contiguous extension requested.
+                exts.extend(&self.contiguous_extensions);
+            } else {
+                // Choose an anchor extension from the contiguous block to position the block.
+                // Prefer a non-Padding anchor if present; otherwise, use the first element.
+                let anchor = self
+                    .contiguous_extensions
+                    .iter()
+                    .find(|e| **e != ExtensionType::Padding)
+                    .copied()
+                    .unwrap_or(self.contiguous_extensions[0]);
+
+                // Determine where the anchor would appear in the randomized order by
+                // sorting with the same key including the anchor.
+                let mut with_anchor = exts.clone();
+                if !with_anchor.contains(&anchor) {
+                    with_anchor.push(anchor);
+                }
+                with_anchor.sort_by_cached_key(|new_ext| {
+                    let seed = ((self.order_seed as u32) << 16) | (u16::from(*new_ext) as u32);
+                    low_quality_integer_hash(seed)
+                });
+                let idx = with_anchor
+                    .iter()
+                    .position(|e| *e == anchor)
+                    .unwrap_or(exts.len());
+
+                // Insert the whole contiguous block at the computed position.
+                for (offset, ext) in self
+                    .contiguous_extensions
+                    .iter()
+                    .copied()
+                    .enumerate()
+                {
+                    exts.insert(idx + offset, ext);
+                }
+            }
+        }
 
         if self
             .encrypted_client_hello_outer
@@ -1005,6 +1057,30 @@ impl ClientExtensions<'_> {
         if self.preshared_key_offer.is_some() {
             exts.push(ExtensionType::PreSharedKey);
         }
+
+        // Fallback: if no explicit contiguous block was requested but padding is present,
+        // place Padding immediately before SupportedVersions to better match
+        // common client fingerprints.
+        if self.contiguous_extensions.is_empty() && self.padding.is_some() {
+            let mut idx_sv: Option<usize> = None;
+            let mut idx_pad: Option<usize> = None;
+            for (i, e) in exts.iter().enumerate() {
+                if *e == ExtensionType::SupportedVersions {
+                    idx_sv = Some(i);
+                }
+                if *e == ExtensionType::Padding {
+                    idx_pad = Some(i);
+                }
+            }
+            if let (Some(i_sv), Some(i_pad)) = (idx_sv, idx_pad) {
+                if i_pad + 1 != i_sv {
+                    let pad = exts.remove(i_pad);
+                    let insert_at = if i_pad < i_sv { i_sv - 1 } else { i_sv };
+                    exts.insert(insert_at, pad);
+                }
+            }
+        }
+
         exts
     }
 

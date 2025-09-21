@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.23.33] - 2025-09-21
+## [0.23.34] - 2025-09-21
 
 ### Added
 - **HelloPolicy Framework**: Introduced `HelloPolicy` trait for customizable ClientHello construction

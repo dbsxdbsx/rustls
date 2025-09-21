@@ -18,7 +18,7 @@ use crate::common_state::{
 use crate::conn::ConnectionRandoms;
 use crate::conn::kernel::{Direction, KernelContext, KernelState};
 use crate::crypto::hash::Hash;
-use crate::crypto::{ActiveKeyExchange, SharedSecret};
+use crate::crypto::{ActiveKeyExchange, SharedSecret, SupportedKxGroup};
 use crate::enums::{
     AlertDescription, CertificateType, ContentType, HandshakeType, ProtocolVersion, SignatureScheme,
 };
@@ -121,8 +121,21 @@ impl ClientHandler<Tls13CipherSuite> for Handler {
             _ => None,
         };
 
-        // We always send a key share when TLS 1.3 is enabled.
-        let our_key_share = st.offered_key_share.unwrap();
+        // We always send at least one key share when TLS 1.3 is enabled.
+        let offered_key_shares = st.offered_key_share.unwrap();
+        let their_group = their_key_share.group;
+        let idx_exact = offered_key_shares
+            .iter()
+            .position(|ks| ks.group() == their_group);
+        let idx_hybrid = offered_key_shares
+            .iter()
+            .position(|ks| ks.hybrid_component().map(|(g, _)| g) == Some(their_group));
+        let idx = idx_exact.or(idx_hybrid).unwrap_or(0);
+        let our_key_share = offered_key_shares
+            .into_iter()
+            .nth(idx)
+            .unwrap();
+
         let our_key_share = KeyExchangeChoice::new(&config, cx, our_key_share, their_key_share)
             .map_err(|_| {
                 cx.common.send_fatal_alert(
@@ -324,12 +337,61 @@ fn validate_server_hello(
     Ok(())
 }
 
-pub(super) fn initial_key_share(
+pub(super) fn initial_key_shares(
     config: &ClientConfig,
     server_name: &ServerName<'_>,
     kx_state: &mut KxState,
-) -> Result<Box<dyn ActiveKeyExchange>, Error> {
-    let group = config
+) -> Result<Vec<Box<dyn ActiveKeyExchange>>, Error> {
+    use crate::client::hello_policy::HelloPolicyContext;
+    use crate::enums::ProtocolVersion as Pv;
+
+    // Build available NamedGroups for TLS1.3
+    let available: Vec<_> = config
+        .provider
+        .kx_groups
+        .iter()
+        .filter_map(|skxg| {
+            let ng = skxg.name();
+            ng.usable_for_version(Pv::TLSv1_3)
+                .then_some(ng)
+        })
+        .collect();
+
+    // Policy-driven multi-share selection
+    if let Some(policy) = config.hello_policy.as_ref() {
+        let ctx = HelloPolicyContext {
+            tls12: false,
+            tls13: true,
+            is_quic: false,
+            sni: &[],
+        };
+        if let Some(wants) = policy.preferred_key_share_groups(&available, &ctx) {
+            let mut out = Vec::with_capacity(wants.len());
+            let mut primary_group: Option<&'static dyn SupportedKxGroup> = None;
+            for (i, want) in wants.into_iter().enumerate() {
+                if let Some(skxg) = config.find_kx_group(want, ProtocolVersion::TLSv1_3) {
+                    if primary_group.is_none() {
+                        primary_group = Some(skxg);
+                    }
+                    let kx = skxg.start()?;
+                    out.push(kx);
+                    // Limit to avoid oversized CH
+                    if i >= 7 {
+                        break;
+                    }
+                }
+            }
+            if let Some(pg) = primary_group {
+                *kx_state = KxState::Start(pg);
+            }
+            if !out.is_empty() {
+                return Ok(out);
+            }
+        }
+    }
+
+    // Fallback: single share using resumption hint or provider default, possibly overridden by single preferred group.
+    let mut group = config
         .resumption
         .store
         .kx_hint(server_name)
@@ -344,8 +406,22 @@ pub(super) fn initial_key_share(
                 .expect("No kx groups configured")
         });
 
+    if let Some(policy) = config.hello_policy.as_ref() {
+        let ctx = HelloPolicyContext {
+            tls12: false,
+            tls13: true,
+            is_quic: false,
+            sni: &[],
+        };
+        if let Some(want) = policy.preferred_key_share_group(&available, &ctx) {
+            if let Some(wanted) = config.find_kx_group(want, ProtocolVersion::TLSv1_3) {
+                group = wanted;
+            }
+        }
+    }
+
     *kx_state = KxState::Start(group);
-    group.start()
+    Ok(alloc::vec![group.start()?])
 }
 
 /// This implements the horrifying TLS1.3 hack where PSK binders have a
@@ -424,6 +500,25 @@ pub(super) fn prepare_resumption(
         PresharedKeyIdentity::new(resuming_session.ticket().to_vec(), obfuscated_ticket_age);
     let psk_offer = PresharedKeyOffer::new(psk_identity, binder);
     exts.preshared_key_offer = Some(psk_offer);
+
+    // Apply HelloPolicy: allow disabling PSK and 0-RTT even if resumption is possible
+    if let Some(policy) = config.hello_policy.as_ref() {
+        use crate::client::hello_policy::HelloPolicyContext;
+        let ctx = HelloPolicyContext {
+            tls12: false,
+            tls13: true,
+            is_quic: cx.common.is_quic(),
+            sni: &[],
+        };
+        if policy.disable_psk(&ctx) {
+            exts.preshared_key_offer = None;
+        }
+        if policy.disable_early_data(&ctx) {
+            exts.early_data_request = None;
+            cx.data.early_data.rejected();
+            cx.common.early_traffic = false;
+        }
+    }
 }
 
 pub(super) fn derive_early_traffic_secret(
