@@ -184,6 +184,15 @@ impl<Side: ConfigSide> ConfigBuilder<Side, WantsVerifier> {
     pub fn with_safe_default_protocol_versions(self) -> Result<Self, crate::error::Error> {
         Ok(self)
     }
+
+    /// Compatibility shim: align with upstream API `with_protocol_versions(&[&SupportedProtocolVersion])`.
+    /// This fork derives enabled versions from the selected CryptoProvider, so this is a no-op.
+    pub fn with_protocol_versions(
+        self,
+        _versions: &[&'static crate::SupportedProtocolVersion],
+    ) -> Result<Self, crate::error::Error> {
+        Ok(self)
+    }
 }
 
 /// Helper trait to abstract [`ConfigBuilder`] over building a [`ClientConfig`] or [`ServerConfig`].

@@ -182,7 +182,8 @@ mod server_hello {
 
                     // Since we're resuming, we verified the certificate and
                     // proof of possession in the prior session.
-                    cx.common.peer_identity = Some(resuming.peer_identity().clone());
+                    let id = resuming.peer_identity().clone();
+                    cx.common.set_peer_identity(id);
                     cx.common.handshake_kind = Some(HandshakeKind::Resumed);
                     let cert_verified = verify::ServerCertVerified::assertion();
                     let sig_verified = verify::HandshakeSignatureValid::assertion();
@@ -936,7 +937,7 @@ impl State<ClientConnectionData> for ExpectServerDone<'_> {
                         .send_cert_verify_error_alert(err)
                 })?
         };
-        cx.common.peer_identity = Some(identity);
+        cx.common.set_peer_identity(identity);
 
         // 3.
         if let Some(client_auth) = &st.client_auth {

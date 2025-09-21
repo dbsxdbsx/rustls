@@ -25,6 +25,7 @@ use crate::unbuffered::{EncryptError, InsufficientSizeError};
 use crate::vecbuf::ChunkVecBuffer;
 use crate::verify::PeerIdentity;
 use crate::{quic, record_layer};
+use pki_types::CertificateDer;
 
 /// Connection state common to both client and server connections.
 pub struct CommonState {
@@ -49,6 +50,8 @@ pub struct CommonState {
     #[cfg(feature = "std")]
     pub(crate) has_seen_eof: bool,
     pub(crate) peer_identity: Option<PeerIdentity>,
+    /// Flattened peer certificate chain (end-entity first), if the peer authenticated with X.509.
+    peer_cert_chain: Option<Vec<CertificateDer<'static>>>,
     message_fragmenter: MessageFragmenter,
     pub(crate) received_plaintext: ChunkVecBuffer,
     pub(crate) sendable_tls: ChunkVecBuffer,
@@ -86,6 +89,7 @@ impl CommonState {
             #[cfg(feature = "std")]
             has_seen_eof: false,
             peer_identity: None,
+            peer_cert_chain: None,
             message_fragmenter: MessageFragmenter::default(),
             received_plaintext: ChunkVecBuffer::new(Some(DEFAULT_RECEIVED_PLAINTEXT_LIMIT)),
             sendable_tls: ChunkVecBuffer::new(Some(DEFAULT_BUFFER_LIMIT)),
@@ -126,6 +130,28 @@ impl CommonState {
     /// client, if client authentication was completed.
     ///
     /// The return value is None until this value is available.
+    /// Set the peer identity and cache a flattened certificate chain for API compatibility.
+    pub(crate) fn set_peer_identity(&mut self, identity: PeerIdentity) {
+        // Cache flattened cert chain only for X.509; RPK does not have a certificate chain.
+        self.peer_cert_chain = match &identity {
+            PeerIdentity::X509(ci) => {
+                let mut v = Vec::with_capacity(1 + ci.intermediates.len());
+                v.push(ci.end_entity.clone());
+                v.extend(ci.intermediates.iter().cloned());
+                Some(v)
+            }
+            PeerIdentity::RawPublicKey(_) => None,
+        };
+        self.peer_identity = Some(identity);
+    }
+
+    /// Retrieves the certificate chain used by the peer to authenticate (X.509 only).
+    ///
+    /// Returns `None` until available, or if the peer used RawPublicKey authentication.
+    pub fn peer_certificates(&self) -> Option<&[CertificateDer<'static>]> {
+        self.peer_cert_chain.as_deref()
+    }
+
     pub fn peer_identity(&self) -> Option<&PeerIdentity> {
         self.peer_identity.as_ref()
     }

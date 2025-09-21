@@ -689,7 +689,8 @@ impl State<ClientConnectionData> for ExpectEncryptedExtensions {
                         .set_handshake_encrypter(cx.common);
                 }
 
-                cx.common.peer_identity = Some(resuming_session.peer_identity().clone());
+                let id = resuming_session.peer_identity().clone();
+                cx.common.set_peer_identity(id);
                 cx.common.handshake_kind = Some(HandshakeKind::Resumed);
 
                 // We *don't* reverify the certificate chain here: resumption is a
@@ -1355,7 +1356,7 @@ impl State<ClientConnectionData> for ExpectCertificateVerify<'_> {
                     .send_cert_verify_error_alert(err)
             })?;
 
-        cx.common.peer_identity = Some(identity);
+        cx.common.set_peer_identity(identity);
         self.transcript.add_message(&m);
 
         Ok(Box::new(ExpectFinished {

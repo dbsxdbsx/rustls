@@ -522,6 +522,16 @@ impl ServerConfig {
         Self::builder_with_details(provider, Arc::new(DefaultTimeProvider))
     }
 
+    /// Compatibility helper mirroring upstream builder chaining: allow specifying protocol versions.
+    ///
+    /// This fork derives enabled versions from the selected CryptoProvider, so this is a no-op.
+    #[cfg(feature = "std")]
+    pub fn builder_with_protocol_versions(
+        _versions: &[&'static crate::SupportedProtocolVersion],
+    ) -> ConfigBuilder<Self, WantsVerifier> {
+        Self::builder()
+    }
+
     /// Create a builder for a server configuration with no default implementation details.
     ///
     /// This API must be used by `no_std` users.

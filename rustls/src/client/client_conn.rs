@@ -305,6 +305,16 @@ impl ClientConfig {
     ) -> ConfigBuilder<Self, WantsVerifier> {
         Self::builder_with_details(provider, Arc::new(DefaultTimeProvider))
     }
+    /// Compatibility helper mirroring upstream builder chaining: allow specifying protocol versions.
+    ///
+    /// This fork derives enabled versions from the selected CryptoProvider, so this is a no-op.
+    #[cfg(feature = "std")]
+    pub fn builder_with_protocol_versions(
+        _versions: &[&'static crate::SupportedProtocolVersion],
+    ) -> ConfigBuilder<Self, WantsVerifier> {
+        Self::builder()
+    }
+
     /// Create a builder for a client configuration with no default implementation details.
     ///
     /// This API must be used by `no_std` users.
@@ -605,7 +615,7 @@ mod connection {
     use core::ops::{Deref, DerefMut};
     use std::io;
 
-    use pki_types::ServerName;
+    use pki_types::{CertificateDer, ServerName};
 
     use super::{ClientConnectionData, ClientExtensionsInput};
     use crate::client::EchStatus;
@@ -786,6 +796,15 @@ mod connection {
         /// configuration that NIST recommends, as well as ECH HPKE suites if applicable.
         pub fn fips(&self) -> bool {
             self.inner.core.common_state.fips
+        }
+        /// Retrieves the server's X.509 certificate chain used to authenticate.
+        ///
+        /// Returns `None` until available, or if the peer used RawPublicKey authentication.
+        pub fn peer_certificates(&self) -> Option<&[CertificateDer<'static>]> {
+            self.inner
+                .core
+                .common_state
+                .peer_certificates()
         }
 
         fn write_early_data(&mut self, data: &[u8]) -> io::Result<usize> {
