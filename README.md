@@ -50,8 +50,7 @@ use std::sync::Arc;
 
 let mut config = ClientConfig::builder_with_provider(provider.into())
     .with_root_certificates(roots)
-    .with_no_client_auth()
-    .unwrap();
+    .with_no_client_auth();
 
 // Apply Chrome fingerprint preset
 config = config.with_hello_policy(

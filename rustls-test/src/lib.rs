@@ -619,7 +619,6 @@ impl ClientConfigExt for rustls::ConfigBuilder<ClientConfig, rustls::WantsVerifi
 
         self.with_root_certificates(root_store)
             .with_no_client_auth()
-            .unwrap()
     }
 
     fn finish_with_creds(self, kt: KeyType) -> ClientConfig {
@@ -665,7 +664,6 @@ pub fn make_client_config_with_verifier(
         .dangerous()
         .with_custom_certificate_verifier(verifier_builder.build().unwrap())
         .with_no_client_auth()
-        .unwrap()
 }
 
 pub fn webpki_client_verifier_builder(

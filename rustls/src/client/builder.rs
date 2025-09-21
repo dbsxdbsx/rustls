@@ -146,8 +146,15 @@ impl ConfigBuilder<ClientConfig, WantsClientCert> {
     }
 
     /// Do not support client auth.
-    pub fn with_no_client_auth(self) -> Result<ClientConfig, Error> {
+    ///
+    /// Upstream rustls 0.23 returns `ClientConfig` here (not `Result`).
+    /// Restore that signature for better ecosystem compatibility (e.g. hickory-proto).
+    /// This should not fail under normal provider/ECH configuration; if it does,
+    /// it indicates an API misuse elsewhere, so we convert the internal Result into
+    /// a controlled panic with a clear message.
+    pub fn with_no_client_auth(self) -> ClientConfig {
         self.with_client_cert_resolver(Arc::new(handy::FailResolveClientCert {}))
+            .expect("with_no_client_auth should not fail under normal provider/ECH configuration")
     }
 
     /// Sets a custom [`ResolvesClientCert`].

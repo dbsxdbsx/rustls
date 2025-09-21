@@ -819,9 +819,12 @@ fn make_server_cfg(opts: &Options, key_log: &Arc<KeyLogMemo>) -> Arc<ServerConfi
 
     match opts.install_cert_compression_algs {
         CompressionAlgs::All => {
-            cfg.cert_compressors = vec![&ExpandingAlgorithm, &ShrinkingAlgorithm, &RandomAlgorithm];
-            cfg.cert_decompressors =
+            let compressors: Vec<&'static dyn compress::CertCompressor> =
                 vec![&ExpandingAlgorithm, &ShrinkingAlgorithm, &RandomAlgorithm];
+            cfg.cert_compressors = compressors;
+            let decompressors: Vec<&'static dyn compress::CertDecompressor> =
+                vec![&ExpandingAlgorithm, &ShrinkingAlgorithm, &RandomAlgorithm];
+            cfg.cert_decompressors = decompressors;
         }
         CompressionAlgs::One(ShrinkingAlgorithm::ALGORITHM) => {
             cfg.cert_compressors = vec![&ShrinkingAlgorithm];
@@ -975,7 +978,7 @@ fn make_client_cfg(opts: &Options, key_log: &Arc<KeyLogMemo>) -> Arc<ClientConfi
             cfg.with_client_cert_resolver(Arc::new(resolver))
                 .unwrap()
         }
-        false => cfg.with_no_client_auth().unwrap(),
+        false => cfg.with_no_client_auth(),
     };
 
     cfg.resumption = Resumption::store(ClientCacheWithoutKxHints::new(opts.resumption_delay))
@@ -1004,9 +1007,12 @@ fn make_client_cfg(opts: &Options, key_log: &Arc<KeyLogMemo>) -> Arc<ClientConfi
 
     match opts.install_cert_compression_algs {
         CompressionAlgs::All => {
-            cfg.cert_decompressors =
+            let decompressors: Vec<&'static dyn compress::CertDecompressor> =
                 vec![&ExpandingAlgorithm, &ShrinkingAlgorithm, &RandomAlgorithm];
-            cfg.cert_compressors = vec![&ExpandingAlgorithm, &ShrinkingAlgorithm, &RandomAlgorithm];
+            cfg.cert_decompressors = decompressors;
+            let compressors: Vec<&'static dyn compress::CertCompressor> =
+                vec![&ExpandingAlgorithm, &ShrinkingAlgorithm, &RandomAlgorithm];
+            cfg.cert_compressors = compressors;
         }
         CompressionAlgs::One(ShrinkingAlgorithm::ALGORITHM) => {
             cfg.cert_decompressors = vec![&ShrinkingAlgorithm];

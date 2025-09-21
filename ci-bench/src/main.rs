@@ -559,14 +559,12 @@ impl ClientSideStepper<'_> {
 
                 cfg.with_root_certificates(root_store)
                     .with_no_client_auth()
-                    .unwrap()
             }
 
             AuthKeySource::FuzzingProvider => cfg
                 .dangerous()
                 .with_custom_certificate_verifier(rustls_fuzzing_provider::server_verifier())
-                .with_no_client_auth()
-                .unwrap(),
+                .with_no_client_auth(),
         };
 
         if resume != ResumptionKind::No {

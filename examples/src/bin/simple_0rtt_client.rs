@@ -101,8 +101,7 @@ fn main() {
 
     let mut config = rustls::ClientConfig::builder()
         .with_root_certificates(root_store)
-        .with_no_client_auth()
-        .unwrap();
+        .with_no_client_auth();
 
     // Allow using SSLKEYLOGFILE.
     config.key_log = Arc::new(rustls::KeyLogFile::new());

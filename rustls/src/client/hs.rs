@@ -1065,14 +1065,12 @@ fn emit_client_hello_for_retry(
                     // Add GREASE extension with a value
                     exts.grease_extensions.push((
                         ExtensionType::from(grease_ext1),
-                        Some(crate::msgs::base::PayloadU16::new(vec![0u8; 8] as Vec<u8>)), // GREASE value
+                        Some(crate::msgs::base::PayloadU16::new(vec![0u8; 8])), // GREASE value
                     ));
                 } else {
                     // Add GREASE extension without value
-                    exts.grease_extensions.push((
-                        ExtensionType::from(grease_ext1),
-                        None,
-                    ));
+                    exts.grease_extensions
+                        .push((ExtensionType::from(grease_ext1), None));
                 }
 
                 // Optionally add a second GREASE extension
@@ -1082,13 +1080,11 @@ fn emit_client_hello_for_retry(
                         if policy.grease_extension_values(&ctx) {
                             exts.grease_extensions.push((
                                 ExtensionType::from(grease_ext2),
-                                Some(crate::msgs::base::PayloadU16::new(vec![0u8; 16] as Vec<u8>)), // Different GREASE value
+                                Some(crate::msgs::base::PayloadU16::new(vec![0u8; 16])), // Different GREASE value
                             ));
                         } else {
-                            exts.grease_extensions.push((
-                                ExtensionType::from(grease_ext2),
-                                None,
-                            ));
+                            exts.grease_extensions
+                                .push((ExtensionType::from(grease_ext2), None));
                         }
                     }
                 }

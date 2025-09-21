@@ -121,7 +121,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     )
     .with_ech(ech_mode)
     .with_root_certificates(root_store)
-    .with_no_client_auth()?;
+    .with_no_client_auth();
 
     // Allow using SSLKEYLOGFILE.
     config.key_log = Arc::new(rustls::KeyLogFile::new());

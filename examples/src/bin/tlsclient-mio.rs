@@ -468,7 +468,7 @@ fn make_config(args: &Args) -> Arc<rustls::ClientConfig> {
                 .with_client_auth_cert(certs, key)
                 .expect("invalid client auth certs/key")
         }
-        (None, None) => config.with_no_client_auth().unwrap(),
+        (None, None) => config.with_no_client_auth(),
         (_, _) => {
             panic!("must provide --auth-certs and --auth-key together");
         }

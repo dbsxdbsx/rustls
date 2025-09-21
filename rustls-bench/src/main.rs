@@ -850,7 +850,7 @@ impl Parameters {
                     self.proto.key_type.client_key(),
                 )
                 .unwrap(),
-            ClientAuth::No => cfg.with_no_client_auth().unwrap(),
+            ClientAuth::No => cfg.with_no_client_auth(),
         };
 
         cfg.resumption = match self.resume {
