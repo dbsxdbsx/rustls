@@ -153,7 +153,7 @@ impl WebPkiServerVerifier {
     pub fn builder(roots: Arc<RootCertStore>) -> ServerCertVerifierBuilder {
         Self::builder_with_provider(
             roots,
-            CryptoProvider::get_default_or_install_from_crate_features(),
+            CryptoProvider::get_default_or_install_from_crate_features().clone(),
         )
     }
 
@@ -167,7 +167,7 @@ impl WebPkiServerVerifier {
     /// For more information, see the [`ServerCertVerifierBuilder`] documentation.
     pub fn builder_with_provider(
         roots: Arc<RootCertStore>,
-        provider: &CryptoProvider,
+        provider: Arc<CryptoProvider>,
     ) -> ServerCertVerifierBuilder {
         ServerCertVerifierBuilder::new(roots, provider.signature_verification_algorithms)
     }

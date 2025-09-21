@@ -677,7 +677,7 @@ pub fn webpki_server_verifier_builder(
     roots: Arc<RootCertStore>,
     provider: &CryptoProvider,
 ) -> ServerCertVerifierBuilder {
-    WebPkiServerVerifier::builder_with_provider(roots, provider)
+    WebPkiServerVerifier::builder_with_provider(roots, provider.clone().into())
 }
 
 pub fn make_pair(kt: KeyType, provider: &CryptoProvider) -> (ClientConnection, ServerConnection) {
