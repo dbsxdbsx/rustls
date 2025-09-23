@@ -83,8 +83,7 @@ fn test_version(provider: CryptoProvider) -> Transcript {
     let client_config = ClientConfig::builder_with_provider(provider.into())
         .dangerous()
         .with_custom_certificate_verifier(rustls_fuzzing_provider::server_verifier())
-        .with_no_client_auth()
-        .unwrap();
+        .with_no_client_auth();
     let hostname = "localhost".try_into().unwrap();
     let mut client = ClientConnection::new(client_config.into(), hostname).unwrap();
     server

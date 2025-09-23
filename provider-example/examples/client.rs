@@ -14,8 +14,7 @@ fn main() {
     let config =
         rustls::ClientConfig::builder_with_provider(rustls_provider_example::provider().into())
             .with_root_certificates(root_store)
-            .with_no_client_auth()
-            .unwrap();
+            .with_no_client_auth();
 
     let server_name = "www.rust-lang.org".try_into().unwrap();
     let mut conn = rustls::ClientConnection::new(Arc::new(config), server_name).unwrap();

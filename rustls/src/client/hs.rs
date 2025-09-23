@@ -31,7 +31,7 @@ use crate::crypto::{ActiveKeyExchange, KeyExchangeAlgorithm};
 use crate::enums::{
     AlertDescription, CertificateType, CipherSuite, ContentType, HandshakeType, ProtocolVersion,
 };
-use crate::error::{ApiMisuse, Error, PeerIncompatible, PeerMisbehaved};
+use crate::error::{ApiMisuse, Error, InvalidMessage, PeerIncompatible, PeerMisbehaved};
 use crate::hash_hs::HandshakeHashBuffer;
 use crate::log::{debug, trace};
 use crate::msgs::base::Payload;
@@ -43,7 +43,7 @@ use crate::msgs::handshake::{
     ServerHelloPayload, ServerNamePayload, SessionId, SupportedEcPointFormats,
     SupportedProtocolVersions, TransportParameters,
 };
-use crate::msgs::message::{Message, MessagePayload};
+use crate::msgs::message::{Message, MessagePayload, PlainMessage};
 use crate::msgs::persist;
 use crate::sealed::Sealed;
 use crate::suites::SupportedCipherSuite;
@@ -1229,6 +1229,43 @@ fn emit_client_hello_for_retry(
     }
 
     trace!("Sending ClientHello {ch:#?}");
+
+    // REALITY support: Allow HelloPolicy to modify ClientHello bytes before sending
+    let ch = if let Some(policy) = config.hello_policy.as_ref() {
+        use crate::client::hello_policy::HelloPolicyContext;
+        use crate::msgs::codec::Reader;
+        use crate::msgs::message::OutboundOpaqueMessage;
+        
+        let ctx = HelloPolicyContext {
+            tls12: config.supports_version(ProtocolVersion::TLSv1_2) && !forbids_tls12,
+            tls13: config.supports_version(ProtocolVersion::TLSv1_3),
+            is_quic: cx.common.is_quic(),
+            sni: &[],
+        };
+        
+        // Convert message to bytes for policy inspection/modification
+        let owned_ch = ch.into_owned();
+        let original_bytes = PlainMessage::from(owned_ch).into_unencrypted_opaque().encode();
+        
+        if let Some(modified_bytes) = policy.reality_inject_clienthello(&original_bytes, &ctx) {
+            // Policy provided modified bytes, decode them back to a Message
+            let mut reader = Reader::init(&modified_bytes);
+            let opaque_msg = OutboundOpaqueMessage::read(&mut reader)
+                .map_err(|_| Error::InvalidMessage(InvalidMessage::MessageTooShort))?;
+            let plain = opaque_msg.into_plain_message();
+            Message::try_from(plain)?
+        } else {
+            // No modification from policy, reconstruct from original bytes
+            let mut reader = Reader::init(&original_bytes);
+            let opaque_msg = OutboundOpaqueMessage::read(&mut reader)
+                .map_err(|_| Error::InvalidMessage(InvalidMessage::MessageTooShort))?;
+            let plain = opaque_msg.into_plain_message();
+            Message::try_from(plain)?
+        }
+    } else {
+        // No policy set, use original message
+        ch
+    };
 
     transcript_buffer.add_message(&ch);
     cx.common.send_msg(ch, false);

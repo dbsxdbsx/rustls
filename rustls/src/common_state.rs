@@ -152,6 +152,12 @@ impl CommonState {
         self.peer_cert_chain.as_deref()
     }
 
+    /// 获取对端用于身份验证的完整身份信息。
+    ///
+    /// 这包含了对端的证书（X.509）或原始公钥（RPK）身份信息。
+    /// 对于客户端，这是服务器的身份。对于服务器，这是客户端的身份（如果进行了客户端验证）。
+    ///
+    /// 返回 `None` 直到身份信息可用。
     pub fn peer_identity(&self) -> Option<&PeerIdentity> {
         self.peer_identity.as_ref()
     }

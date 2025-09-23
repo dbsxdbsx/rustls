@@ -556,6 +556,7 @@ pub mod client {
     mod ech;
     pub(super) mod handy;
     mod hello_policy;
+    pub mod hello_policy_reality;
     mod hs;
     #[cfg(test)]
     mod test;
@@ -574,6 +575,7 @@ pub mod client {
     #[cfg(any(feature = "std", feature = "hashbrown"))]
     pub use handy::ClientSessionMemoryCache;
     pub use hello_policy::{AlpnDecision, BrowserLikePolicy, DefaultHelloPolicy, HelloPolicy};
+    pub use hello_policy_reality::RealityHelloPolicy;
 
     /// Dangerous configuration that should be audited and used with extreme care.
     pub mod danger {

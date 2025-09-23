@@ -477,6 +477,18 @@ pub trait HelloPolicy: Send + Sync + core::fmt::Debug {
     fn force_empty_session_id(&self, _ctx: &HelloPolicyContext<'_>) -> bool {
         false
     }
+
+    /// REALITY support: modify ClientHello bytes just before sending.
+    /// This allows injecting REALITY authentication tokens into legacy_session_id.
+    /// 
+    /// If this method returns `Some(modified_bytes)`, those bytes will be sent instead
+    /// of the original ClientHello. If `None`, the original ClientHello is sent unchanged.
+    /// 
+    /// WARNING: Modifying ClientHello bytes incorrectly can break the TLS handshake!
+    /// This method should only be used by implementations that understand the TLS protocol.
+    fn reality_inject_clienthello(&self, _original_bytes: &[u8], _ctx: &HelloPolicyContext<'_>) -> Option<Vec<u8>> {
+        None
+    }
 }
 
 /// A policy that exactly matches upstream behavior (no changes).
