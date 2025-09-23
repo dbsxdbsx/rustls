@@ -894,7 +894,7 @@ impl State<ClientConnectionData> for ExpectServerDone<'_> {
         let cert_verified = st
             .config
             .verifier
-            .verify_server_cert(&ServerIdentity {
+            .verify_server_cert_compat(&ServerIdentity {
                 identity: &identity,
                 server_name: &st.server_name,
                 ocsp_response: &st.server_cert.ocsp_response,
@@ -927,7 +927,7 @@ impl State<ClientConnectionData> for ExpectServerDone<'_> {
 
             st.config
                 .verifier
-                .verify_tls12_signature(&SignatureVerificationInput {
+                .verify_tls12_signature_compat(&SignatureVerificationInput {
                     message: &message,
                     signer: &identity.as_signer(),
                     signature,

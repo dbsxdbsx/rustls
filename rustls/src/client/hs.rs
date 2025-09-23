@@ -714,10 +714,7 @@ fn emit_client_hello_for_retry(
                 .supported_verify_schemes(),
         ),
         extended_master_secret_request: Some(()),
-        certificate_status_request: match config.verifier.request_ocsp_response() {
-            true => Some(CertificateStatusRequest::build_ocsp()),
-            false => None,
-        },
+        certificate_status_request: Some(CertificateStatusRequest::build_ocsp()),
         // Use ALPN decided earlier (by HelloPolicy) if any
         protocols: if input.hello.alpn_protocols.is_empty() {
             None
@@ -1244,8 +1241,17 @@ fn emit_client_hello_for_retry(
         };
         
         // Convert message to bytes for policy inspection/modification
-        let owned_ch = ch.into_owned();
-        let original_bytes = PlainMessage::from(owned_ch).into_unencrypted_opaque().encode();
+        // Create a temporary message to convert to bytes, using cloned payload content
+        let plain_msg = PlainMessage {
+            typ: ch.payload.content_type(),
+            version: ch.version,
+            payload: {
+                let mut buf = Vec::new();
+                ch.payload.encode(&mut buf);
+                Payload::Owned(buf)
+            },
+        };
+        let original_bytes = plain_msg.into_unencrypted_opaque().encode();
         
         if let Some(modified_bytes) = policy.reality_inject_clienthello(&original_bytes, &ctx) {
             // Policy provided modified bytes, decode them back to a Message
@@ -1255,12 +1261,8 @@ fn emit_client_hello_for_retry(
             let plain = opaque_msg.into_plain_message();
             Message::try_from(plain)?
         } else {
-            // No modification from policy, reconstruct from original bytes
-            let mut reader = Reader::init(&original_bytes);
-            let opaque_msg = OutboundOpaqueMessage::read(&mut reader)
-                .map_err(|_| Error::InvalidMessage(InvalidMessage::MessageTooShort))?;
-            let plain = opaque_msg.into_plain_message();
-            Message::try_from(plain)?
+            // No modification from policy, use original message
+            ch
         }
     } else {
         // No policy set, use original message

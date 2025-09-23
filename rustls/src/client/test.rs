@@ -3,7 +3,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use std::prelude::v1::*;
 use std::vec;
 
-use pki_types::{CertificateDer, ServerName};
+use pki_types::{CertificateDer, ServerName, UnixTime};
 
 use crate::client::{ClientConfig, ClientConnection, Resumption, Tls12Resumption};
 use crate::crypto::CryptoProvider;
@@ -43,8 +43,7 @@ mod tests {
     use crate::sign::CertifiedKey;
     use crate::tls13::key_schedule::{derive_traffic_iv, derive_traffic_key};
     use crate::verify::{
-        HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier, ServerIdentity,
-        SignatureVerificationInput,
+        HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier,
     };
     use crate::{DigitallySignedStruct, DistinguishedName, KeyLog};
 
@@ -306,16 +305,22 @@ mod tests {
     impl ServerCertVerifier for ExpectSha1EcdsaVerifier {
         fn verify_server_cert(
             &self,
-            _identity: &ServerIdentity<'_>,
+            _end_entity: &CertificateDer<'_>,
+            _intermediates: &[CertificateDer<'_>],
+            _server_name: &ServerName<'_>,
+            _ocsp_response: &[u8],
+            _now: UnixTime,
         ) -> Result<ServerCertVerified, Error> {
             Ok(ServerCertVerified::assertion())
         }
 
         fn verify_tls12_signature(
             &self,
-            input: &SignatureVerificationInput<'_>,
+            _message: &[u8],
+            _cert: &CertificateDer<'_>,
+            dss: &DigitallySignedStruct,
         ) -> Result<HandshakeSignatureValid, Error> {
-            assert_eq!(input.signature.scheme, SignatureScheme::ECDSA_SHA1_Legacy);
+            assert_eq!(dss.scheme, SignatureScheme::ECDSA_SHA1_Legacy);
             self.seen_sha1_signature
                 .store(true, Ordering::SeqCst);
             Ok(HandshakeSignatureValid::assertion())
@@ -324,13 +329,11 @@ mod tests {
         #[cfg_attr(coverage_nightly, coverage(off))]
         fn verify_tls13_signature(
             &self,
-            _input: &SignatureVerificationInput<'_>,
+            _message: &[u8],
+            _cert: &CertificateDer<'_>,
+            _dss: &DigitallySignedStruct,
         ) -> Result<HandshakeSignatureValid, Error> {
             todo!()
-        }
-
-        fn request_ocsp_response(&self) -> bool {
-            false
         }
 
         fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
@@ -493,14 +496,18 @@ mod tests {
     struct ServerVerifierWithAuthorityNames(Arc<[DistinguishedName]>);
 
     impl ServerCertVerifier for ServerVerifierWithAuthorityNames {
-        fn root_hint_subjects(&self) -> Option<Arc<[DistinguishedName]>> {
-            Some(self.0.clone())
+        fn root_hint_subjects(&self) -> Option<&[DistinguishedName]> {
+            Some(&self.0)
         }
 
         #[cfg_attr(coverage_nightly, coverage(off))]
         fn verify_server_cert(
             &self,
-            _identity: &ServerIdentity<'_>,
+            _end_entity: &CertificateDer<'_>,
+            _intermediates: &[CertificateDer<'_>],
+            _server_name: &ServerName<'_>,
+            _ocsp_response: &[u8],
+            _now: UnixTime,
         ) -> Result<ServerCertVerified, Error> {
             unreachable!()
         }
@@ -508,7 +515,9 @@ mod tests {
         #[cfg_attr(coverage_nightly, coverage(off))]
         fn verify_tls12_signature(
             &self,
-            _input: &SignatureVerificationInput<'_>,
+            _message: &[u8],
+            _cert: &CertificateDer<'_>,
+            _dss: &DigitallySignedStruct,
         ) -> Result<HandshakeSignatureValid, Error> {
             unreachable!()
         }
@@ -516,17 +525,15 @@ mod tests {
         #[cfg_attr(coverage_nightly, coverage(off))]
         fn verify_tls13_signature(
             &self,
-            _input: &SignatureVerificationInput<'_>,
+            _message: &[u8],
+            _cert: &CertificateDer<'_>,
+            _dss: &DigitallySignedStruct,
         ) -> Result<HandshakeSignatureValid, Error> {
             unreachable!()
         }
 
         fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
             vec![SignatureScheme::RSA_PKCS1_SHA1]
-        }
-
-        fn request_ocsp_response(&self) -> bool {
-            false
         }
     }
 
@@ -537,7 +544,11 @@ mod tests {
         #[cfg_attr(coverage_nightly, coverage(off))]
         fn verify_server_cert(
             &self,
-            _identity: &ServerIdentity<'_>,
+            _end_entity: &CertificateDer<'_>,
+            _intermediates: &[CertificateDer<'_>],
+            _server_name: &ServerName<'_>,
+            _ocsp_response: &[u8],
+            _now: UnixTime,
         ) -> Result<ServerCertVerified, Error> {
             todo!()
         }
@@ -545,7 +556,9 @@ mod tests {
         #[cfg_attr(coverage_nightly, coverage(off))]
         fn verify_tls12_signature(
             &self,
-            _input: &SignatureVerificationInput<'_>,
+            _message: &[u8],
+            _cert: &CertificateDer<'_>,
+            _dss: &DigitallySignedStruct,
         ) -> Result<HandshakeSignatureValid, Error> {
             todo!()
         }
@@ -553,7 +566,9 @@ mod tests {
         #[cfg_attr(coverage_nightly, coverage(off))]
         fn verify_tls13_signature(
             &self,
-            _input: &SignatureVerificationInput<'_>,
+            _message: &[u8],
+            _cert: &CertificateDer<'_>,
+            _dss: &DigitallySignedStruct,
         ) -> Result<HandshakeSignatureValid, Error> {
             todo!()
         }
@@ -562,12 +577,8 @@ mod tests {
             vec![SignatureScheme::RSA_PKCS1_SHA1]
         }
 
-        fn request_ocsp_response(&self) -> bool {
-            false
-        }
-
-        fn supported_certificate_types(&self) -> &'static [CertificateType] {
-            &[CertificateType::RawPublicKey]
+        fn requires_raw_public_keys(&self) -> bool {
+            true
         }
     }
 

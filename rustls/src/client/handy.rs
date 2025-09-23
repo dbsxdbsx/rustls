@@ -253,9 +253,9 @@ mod tests {
     use crate::msgs::persist::Tls13ClientSessionValue;
     use crate::sync::Arc;
     use crate::verify::{
-        CertificateIdentity, PeerIdentity, ServerIdentity, SignatureVerificationInput,
+        CertificateIdentity, PeerIdentity,
     };
-    use crate::{Error, SignatureScheme, sign};
+    use crate::{Error, SignatureScheme, sign, DigitallySignedStruct};
 
     #[test]
     fn test_noclientsessionstorage_does_nothing() {
@@ -321,7 +321,11 @@ mod tests {
         #[cfg_attr(coverage_nightly, coverage(off))]
         fn verify_server_cert(
             &self,
-            _identity: &ServerIdentity<'_>,
+            _end_entity: &CertificateDer<'_>,
+            _intermediates: &[CertificateDer<'_>],
+            _server_name: &ServerName<'_>,
+            _ocsp_response: &[u8],
+            _now: UnixTime,
         ) -> Result<ServerCertVerified, Error> {
             unreachable!()
         }
@@ -329,7 +333,9 @@ mod tests {
         #[cfg_attr(coverage_nightly, coverage(off))]
         fn verify_tls12_signature(
             &self,
-            _input: &SignatureVerificationInput<'_>,
+            _message: &[u8],
+            _cert: &CertificateDer<'_>,
+            _dss: &DigitallySignedStruct,
         ) -> Result<HandshakeSignatureValid, Error> {
             unreachable!()
         }
@@ -337,18 +343,15 @@ mod tests {
         #[cfg_attr(coverage_nightly, coverage(off))]
         fn verify_tls13_signature(
             &self,
-            _input: &SignatureVerificationInput<'_>,
+            _message: &[u8],
+            _cert: &CertificateDer<'_>,
+            _dss: &DigitallySignedStruct,
         ) -> Result<HandshakeSignatureValid, Error> {
             unreachable!()
         }
 
         #[cfg_attr(coverage_nightly, coverage(off))]
         fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
-            unreachable!()
-        }
-
-        #[cfg_attr(coverage_nightly, coverage(off))]
-        fn request_ocsp_response(&self) -> bool {
             unreachable!()
         }
     }

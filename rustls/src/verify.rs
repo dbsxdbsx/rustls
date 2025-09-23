@@ -2,6 +2,7 @@ use alloc::vec::Vec;
 use core::fmt::Debug;
 
 use pki_types::{CertificateDer, ServerName, SubjectPublicKeyInfoDer, UnixTime};
+use alloc::string::ToString;
 
 use crate::CommonState;
 use crate::enums::{AlertDescription, CertificateType, SignatureScheme};
@@ -25,7 +26,12 @@ use crate::sync::Arc;
 /// signatures made by certificates.
 #[allow(unreachable_pub)]
 pub trait ServerCertVerifier: Debug + Send + Sync {
-    /// Verify the server's identity.
+    /// Verify the end-entity certificate `end_entity` is valid for the
+    /// hostname `dns_name` and chains to at least one trust anchor.
+    ///
+    /// `intermediates` contains all certificates other than `end_entity` that
+    /// were sent as part of the server's [Certificate] message. It is in the
+    /// same order that the server sent them and may be empty.
     ///
     /// Note that none of the certificates have been parsed yet, so it is the responsibility of
     /// the implementer to handle invalid data. It is recommended that the implementer returns
@@ -35,10 +41,20 @@ pub trait ServerCertVerifier: Debug + Send + Sync {
     /// [`CertificateError::BadEncoding`]: crate::error::CertificateError::BadEncoding
     fn verify_server_cert(
         &self,
-        identity: &ServerIdentity<'_>,
+        end_entity: &CertificateDer<'_>,
+        intermediates: &[CertificateDer<'_>],
+        server_name: &ServerName<'_>,
+        ocsp_response: &[u8],
+        now: UnixTime,
     ) -> Result<ServerCertVerified, Error>;
 
     /// Verify a signature allegedly by the given server certificate.
+    ///
+    /// `message` is not hashed, and needs hashing during the verification.
+    /// The signature and algorithm are within `dss`.  `cert` contains the
+    /// public key to use.
+    ///
+    /// `cert` has already been validated by [`ServerCertVerifier::verify_server_cert`].
     ///
     /// If and only if the signature is valid, return `Ok(HandshakeSignatureValid)`.
     /// Otherwise, return an error -- rustls will send an alert and abort the
@@ -49,7 +65,9 @@ pub trait ServerCertVerifier: Debug + Send + Sync {
     /// in fact bound to the specific curve implied in their name.
     fn verify_tls12_signature(
         &self,
-        input: &SignatureVerificationInput<'_>,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, Error>;
 
     /// Verify a signature allegedly by the given server certificate.
@@ -61,12 +79,12 @@ pub trait ServerCertVerifier: Debug + Send + Sync {
     /// must only validate signatures using public keys on the right curve --
     /// rustls does not enforce this requirement for you.
     ///
-    /// If and only if the signature is valid, return `Ok(HandshakeSignatureValid)`.
-    /// Otherwise, return an error -- rustls will send an alert and abort the
-    /// connection.
+    /// `cert` has already been validated by [`ServerCertVerifier::verify_server_cert`].
     fn verify_tls13_signature(
         &self,
-        input: &SignatureVerificationInput<'_>,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, Error>;
 
     /// Return the list of SignatureSchemes that this verifier will handle,
@@ -74,12 +92,6 @@ pub trait ServerCertVerifier: Debug + Send + Sync {
     ///
     /// This should be in priority order, with the most preferred first.
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme>;
-
-    /// Return true if this verifier will process stapled OCSP responses.
-    ///
-    /// This controls whether a client will ask the server for a stapled OCSP response.
-    /// There is no guarantee the server will provide one.
-    fn request_ocsp_response(&self) -> bool;
 
     /// Returns which [`CertificateType`]s this verifier supports.
     ///
@@ -91,14 +103,84 @@ pub trait ServerCertVerifier: Debug + Send + Sync {
         &[CertificateType::X509]
     }
 
+    /// Returns whether this verifier requires raw public keys as defined
+    /// in [RFC 7250](https://tools.ietf.org/html/rfc7250).
+    fn requires_raw_public_keys(&self) -> bool {
+        false
+    }
+
     /// Return the [`DistinguishedName`]s of certificate authorities that this verifier trusts.
     ///
     /// If specified, will be sent as the [`certificate_authorities`] extension in ClientHello.
     /// Note that this is only applicable to TLS 1.3.
     ///
     /// [`certificate_authorities`]: https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.4
-    fn root_hint_subjects(&self) -> Option<Arc<[DistinguishedName]>> {
+    fn root_hint_subjects(&self) -> Option<&[DistinguishedName]> {
         None
+    }
+
+    // 内部方法：为了保持兼容性，我们提供一个适配器方法
+    /// Internal method to bridge old and new APIs
+    #[doc(hidden)]
+    fn verify_server_cert_compat(
+        &self,
+        identity: &ServerIdentity<'_>,
+    ) -> Result<ServerCertVerified, Error> {
+        match identity.identity {
+            PeerIdentity::X509(cert_chain) => {
+                self.verify_server_cert(
+                    &cert_chain.end_entity,
+                    &cert_chain.intermediates,
+                    identity.server_name,
+                    identity.ocsp_response,
+                    identity.now,
+                )
+            },
+            PeerIdentity::RawPublicKey(_) => {
+                // For raw public keys, we'll need a default implementation or error
+                Err(Error::General("Raw public keys not supported in compatibility mode".to_string()))
+            }
+        }
+    }
+
+    /// Internal method to bridge old and new signature APIs  
+    #[doc(hidden)]
+    fn verify_tls12_signature_compat(
+        &self,
+        input: &SignatureVerificationInput<'_>,
+    ) -> Result<HandshakeSignatureValid, Error> {
+        match input.signer {
+            SignerPublicKey::X509(cert) => {
+                self.verify_tls12_signature(
+                    input.message,
+                    cert,
+                    input.signature,
+                )
+            },
+            SignerPublicKey::RawPublicKey(_) => {
+                Err(Error::General("Raw public keys not supported in compatibility mode".to_string()))
+            }
+        }
+    }
+
+    /// Internal method to bridge old and new signature APIs
+    #[doc(hidden)]
+    fn verify_tls13_signature_compat(
+        &self,
+        input: &SignatureVerificationInput<'_>,
+    ) -> Result<HandshakeSignatureValid, Error> {
+        match input.signer {
+            SignerPublicKey::X509(cert) => {
+                self.verify_tls13_signature(
+                    input.message,
+                    cert,
+                    input.signature,
+                )
+            },
+            SignerPublicKey::RawPublicKey(_) => {
+                Err(Error::General("Raw public keys not supported in compatibility mode".to_string()))
+            }
+        }
     }
 }
 

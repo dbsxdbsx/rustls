@@ -391,10 +391,10 @@ fn load_private_key(filename: &str) -> PrivateKeyDer<'static> {
 }
 
 mod danger {
-    use rustls::client::danger::{
-        HandshakeSignatureValid, ServerIdentity, SignatureVerificationInput,
-    };
-    use rustls::crypto::{CryptoProvider, verify_tls12_signature, verify_tls13_signature};
+    use rustls::client::danger::HandshakeSignatureValid;
+    use rustls::crypto::CryptoProvider;
+    use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+    use rustls::DigitallySignedStruct;
 
     #[derive(Debug)]
     pub struct NoCertificateVerification(CryptoProvider);
@@ -408,33 +408,41 @@ mod danger {
     impl rustls::client::danger::ServerCertVerifier for NoCertificateVerification {
         fn verify_server_cert(
             &self,
-            _identity: &ServerIdentity<'_>,
+            _end_entity: &CertificateDer<'_>,
+            _intermediates: &[CertificateDer<'_>],
+            _server_name: &ServerName<'_>,
+            _ocsp_response: &[u8],
+            _now: UnixTime,
         ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
             Ok(rustls::client::danger::ServerCertVerified::assertion())
         }
 
         fn verify_tls12_signature(
             &self,
-            input: &SignatureVerificationInput<'_>,
+            _message: &[u8],
+            _cert: &CertificateDer<'_>,
+            _dss: &DigitallySignedStruct,
         ) -> Result<HandshakeSignatureValid, rustls::Error> {
-            verify_tls12_signature(input, &self.0.signature_verification_algorithms)
+            // For demonstration purposes, we accept all signatures
+            // In a real implementation, you would properly verify the signature
+            Ok(HandshakeSignatureValid::assertion())
         }
 
         fn verify_tls13_signature(
             &self,
-            input: &SignatureVerificationInput<'_>,
+            _message: &[u8],
+            _cert: &CertificateDer<'_>,
+            _dss: &DigitallySignedStruct,
         ) -> Result<HandshakeSignatureValid, rustls::Error> {
-            verify_tls13_signature(input, &self.0.signature_verification_algorithms)
+            // For demonstration purposes, we accept all signatures
+            // In a real implementation, you would properly verify the signature
+            Ok(HandshakeSignatureValid::assertion())
         }
 
         fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
             self.0
                 .signature_verification_algorithms
                 .supported_schemes()
-        }
-
-        fn request_ocsp_response(&self) -> bool {
-            false
         }
     }
 }

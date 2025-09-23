@@ -1330,7 +1330,7 @@ impl State<ClientConnectionData> for ExpectCertificateVerify<'_> {
         let cert_verified = self
             .config
             .verifier
-            .verify_server_cert(&ServerIdentity {
+            .verify_server_cert_compat(&ServerIdentity {
                 identity: &identity,
                 server_name: &self.server_name,
                 ocsp_response: &self.server_cert.ocsp_response,
@@ -1346,7 +1346,7 @@ impl State<ClientConnectionData> for ExpectCertificateVerify<'_> {
         let sig_verified = self
             .config
             .verifier
-            .verify_tls13_signature(&SignatureVerificationInput {
+            .verify_tls13_signature_compat(&SignatureVerificationInput {
                 message: construct_server_verify_message(&handshake_hash).as_ref(),
                 signer: &identity.as_signer(),
                 signature: cert_verify,

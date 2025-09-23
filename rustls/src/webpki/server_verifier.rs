@@ -6,15 +6,16 @@ use webpki::{CertRevocationList, ExpirationPolicy, RevocationCheckDepth, Unknown
 use crate::crypto::{CryptoProvider, WebPkiSupportedAlgorithms};
 use crate::sync::Arc;
 use crate::verify::{
-    HandshakeSignatureValid, PeerIdentity, ServerCertVerified, ServerCertVerifier, ServerIdentity,
-    SignatureVerificationInput,
+    HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier,
+    SignatureVerificationInput, SignerPublicKey, DigitallySignedStruct,
 };
+use pki_types::{CertificateDer, ServerName, UnixTime};
 use crate::webpki::verify::{
     ParsedCertificate, verify_server_cert_signed_by_trust_anchor_impl, verify_tls12_signature,
     verify_tls13_signature,
 };
 use crate::webpki::{VerifierBuilderError, parse_crls, verify_server_name};
-use crate::{ApiMisuse, Error, RootCertStore, SignatureScheme};
+use crate::{Error, RootCertStore, SignatureScheme};
 #[cfg(doc)]
 use crate::{ConfigBuilder, ServerConfig, crypto};
 
@@ -239,16 +240,13 @@ impl ServerCertVerifier for WebPkiServerVerifier {
     /// or allowed based on configuration.
     fn verify_server_cert(
         &self,
-        identity: &ServerIdentity<'_>,
+        end_entity: &CertificateDer<'_>,
+        intermediates: &[CertificateDer<'_>],
+        server_name: &ServerName<'_>,
+        _ocsp_response: &[u8],
+        now: UnixTime,
     ) -> Result<ServerCertVerified, Error> {
-        let certificates = match identity.identity {
-            PeerIdentity::X509(certificates) => certificates,
-            PeerIdentity::RawPublicKey(_) => {
-                return Err(ApiMisuse::UnverifiableCertificateType.into());
-            }
-        };
-
-        let cert = ParsedCertificate::try_from(&certificates.end_entity)?;
+        let cert = ParsedCertificate::try_from(end_entity)?;
         let crl_refs = self.crls.iter().collect::<Vec<_>>();
         let revocation = if self.crls.is_empty() {
             None
@@ -272,37 +270,48 @@ impl ServerCertVerifier for WebPkiServerVerifier {
         verify_server_cert_signed_by_trust_anchor_impl(
             &cert,
             &self.roots,
-            &certificates.intermediates,
+            intermediates,
             revocation,
-            identity.now,
+            now,
             self.supported.all,
         )?;
 
-        verify_server_name(&cert, identity.server_name)?;
+        verify_server_name(&cert, server_name)?;
         Ok(ServerCertVerified::assertion())
     }
 
     fn verify_tls12_signature(
         &self,
-        input: &SignatureVerificationInput<'_>,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, Error> {
-        verify_tls12_signature(input, &self.supported)
+        let input = SignatureVerificationInput {
+            message,
+            signer: &SignerPublicKey::X509(cert),
+            signature: dss,
+        };
+        verify_tls12_signature(&input, &self.supported)
     }
 
     fn verify_tls13_signature(
         &self,
-        input: &SignatureVerificationInput<'_>,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, Error> {
-        verify_tls13_signature(input, &self.supported)
+        let input = SignatureVerificationInput {
+            message,
+            signer: &SignerPublicKey::X509(cert),
+            signature: dss,
+        };
+        verify_tls13_signature(&input, &self.supported)
     }
 
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
         self.supported.supported_schemes()
     }
 
-    fn request_ocsp_response(&self) -> bool {
-        false
-    }
 }
 
 #[cfg(test)]
