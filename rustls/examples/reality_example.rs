@@ -24,7 +24,7 @@ fn create_reality_client_config() -> Result<ClientConfig, Box<dyn std::error::Er
     // 3. 创建ClientConfig并设置HelloPolicy
     let config = ClientConfig::builder_with_provider(aws_lc_rs::default_provider().into())
         .with_root_certificates(rustls::RootCertStore::empty())
-        .with_no_client_auth()?
+        .with_no_client_auth()
         .with_hello_policy(Arc::new(reality_policy));
         
     Ok(config)
@@ -85,7 +85,7 @@ fn reality_client_example() -> Result<(), Box<dyn std::error::Error>> {
     
     let config = ClientConfig::builder_with_provider(aws_lc_rs::default_provider().into())
         .with_root_certificates(rustls::RootCertStore::empty())
-        .with_no_client_auth()?
+        .with_no_client_auth()
         .with_hello_policy(Arc::new(reality_policy));
     
     println!("✅ REALITY ClientConfig created successfully!");

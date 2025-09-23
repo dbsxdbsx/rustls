@@ -58,8 +58,7 @@ mod tests {
                 .into(),
         )
         .with_root_certificates(roots())
-        .with_no_client_auth()
-        .unwrap();
+        .with_no_client_auth();
         config.resumption = Resumption::in_memory_sessions(128)
             .tls12_resumption(Tls12Resumption::SessionIdOrTickets);
         let ch = client_hello_sent_for_config(config).unwrap();
@@ -75,8 +74,7 @@ mod tests {
                     .into(),
             )
             .with_root_certificates(roots())
-            .with_no_client_auth()
-            .unwrap(),
+            .with_no_client_auth(),
         )
         .unwrap();
         assert!(
@@ -93,8 +91,7 @@ mod tests {
         ] {
             let config = ClientConfig::builder_with_provider(provider.into())
                 .with_root_certificates(roots())
-                .with_no_client_auth()
-                .unwrap();
+                .with_no_client_auth();
             let ch = client_hello_sent_for_config(config).unwrap();
             assert!(
                 !ch.extensions
@@ -112,8 +109,7 @@ mod tests {
         let config =
             ClientConfig::builder_with_provider(super::provider::default_provider().into())
                 .with_root_certificates(roots())
-                .with_no_client_auth()
-                .unwrap();
+                .with_no_client_auth();
         let mut conn =
             ClientConnection::new(config.into(), ServerName::try_from("localhost").unwrap())
                 .unwrap();
@@ -149,8 +145,7 @@ mod tests {
         let mut config =
             ClientConfig::builder_with_provider(super::provider::default_provider().into())
                 .with_root_certificates(roots())
-                .with_no_client_auth()
-                .unwrap();
+                .with_no_client_auth();
         if config.provider.fips() {
             assert!(config.require_ems);
         } else {
@@ -202,7 +197,7 @@ mod tests {
                     .dangerous()
                     .with_custom_certificate_verifier(Arc::new(cas_sending_server_verifier.clone()))
                     .with_no_client_auth()
-                    .unwrap(),
+                    ,
             )
             .unwrap();
             assert_eq!(
@@ -222,8 +217,7 @@ mod tests {
         let config = ClientConfig::builder_with_provider(x25519_provider().into())
             .dangerous()
             .with_custom_certificate_verifier(verifier.clone())
-            .with_no_client_auth()
-            .unwrap();
+            .with_no_client_auth();
 
         let mut conn =
             ClientConnection::new(config.into(), ServerName::try_from("localhost").unwrap())
@@ -630,8 +624,7 @@ fn hybrid_kx_component_share_offered_if_supported_separately() {
     let ch = client_hello_sent_for_config(
         ClientConfig::builder_with_provider(crate::crypto::aws_lc_rs::default_provider().into())
             .with_root_certificates(roots())
-            .with_no_client_auth()
-            .unwrap(),
+            .with_no_client_auth(),
     )
     .unwrap();
 
@@ -656,8 +649,7 @@ fn hybrid_kx_component_share_not_offered_unless_supported_separately() {
     let ch = client_hello_sent_for_config(
         ClientConfig::builder_with_provider(provider.into())
             .with_root_certificates(roots())
-            .with_no_client_auth()
-            .unwrap(),
+            .with_no_client_auth(),
     )
     .unwrap();
 
@@ -717,8 +709,7 @@ fn hello_policy_chrome_latest_applies() {
     // Use TLS1.3-only provider to stabilize expectations
     let mut config = ClientConfig::builder_with_provider(tls13_only_provider().into())
         .with_root_certificates(roots())
-        .with_no_client_auth()
-        .unwrap();
+        .with_no_client_auth();
 
     // Ensure default has no ALPN
     assert!(config.alpn_protocols.is_empty());
@@ -744,8 +735,7 @@ fn hello_policy_chrome_latest_applies() {
         // Build deterministic ClientHello using BrowserLikePolicy hooks
         let mut config = ClientConfig::builder_with_provider(tls13_only_provider().into())
             .with_root_certificates(roots())
-            .with_no_client_auth()
-            .unwrap();
+            .with_no_client_auth();
         use crate::client::hello_policy::HelloPolicy as _;
         let policy = crate::client::BrowserLikePolicy::chrome_latest()
             .with_extension_order_seed(0)
@@ -795,7 +785,6 @@ fn hello_policy_chrome_latest_controls_psk_groups_and_early_data() {
     let mut config = ClientConfig::builder_with_provider(tls13_only_provider().into())
         .with_root_certificates(roots())
         .with_no_client_auth()
-        .unwrap()
         .with_hello_policy(Arc::new(crate::client::BrowserLikePolicy::chrome_latest()));
 
     let ch = client_hello_sent_for_config(config).unwrap();
@@ -846,8 +835,7 @@ fn dump_chrome_latest_exts_hex() {
     use std::sync::Arc;
     let mut config = ClientConfig::builder_with_provider(tls13_only_provider().into())
         .with_root_certificates(roots())
-        .with_no_client_auth()
-        .unwrap();
+        .with_no_client_auth();
     let policy = crate::client::BrowserLikePolicy::chrome_latest()
         .with_grease_lists(false)
         .with_padding_len(Some(0));
@@ -873,8 +861,7 @@ fn hello_policy_chrome_latest_exts_golden_matches() {
     // Build deterministic ClientHello extensions per golden rules
     let mut config = ClientConfig::builder_with_provider(tls13_only_provider().into())
         .with_root_certificates(roots())
-        .with_no_client_auth()
-        .unwrap();
+        .with_no_client_auth();
 
     let policy = crate::client::BrowserLikePolicy::chrome_latest()
         .with_grease_lists(false)
@@ -927,8 +914,7 @@ fn regen_chrome_latest_exts_golden() {
 
     let mut config = ClientConfig::builder_with_provider(tls13_only_provider().into())
         .with_root_certificates(roots())
-        .with_no_client_auth()
-        .unwrap();
+        .with_no_client_auth();
 
     let policy = crate::client::BrowserLikePolicy::chrome_latest()
         .with_grease_lists(false)
@@ -957,8 +943,7 @@ fn hello_policy_padding_relative_to_supported_versions() {
     // TLS1.3-only to stabilize extension set
     let mut config = ClientConfig::builder_with_provider(tls13_only_provider().into())
         .with_root_certificates(roots())
-        .with_no_client_auth()
-        .unwrap();
+        .with_no_client_auth();
 
     let policy = crate::client::BrowserLikePolicy::chrome_latest()
         .with_grease_lists(false)

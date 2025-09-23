@@ -27,7 +27,7 @@ pub fn webpki_server_verifier_builder(
     if exactly_one_provider() {
         WebPkiServerVerifier::builder(roots)
     } else {
-        WebPkiServerVerifier::builder_with_provider(roots, provider)
+        WebPkiServerVerifier::builder_with_provider(roots, Arc::new(provider.clone()))
     }
 }
 

@@ -4,12 +4,8 @@
 //! 注入REALITY协议所需的AEAD加密认证令牌。
 
 use alloc::vec::Vec;
-use crate::client::hello_policy::{HelloPolicy, HelloPolicyContext, AlpnDecision};
+use crate::client::hello_policy::{HelloPolicy, HelloPolicyContext};
 use crate::enums::CipherSuite;
-use crate::msgs::codec::{Codec, Reader};
-use crate::msgs::enums::NamedGroup;
-use crate::enums::SignatureScheme;
-use core::fmt;
 
 /// 用于REALITY协议的HelloPolicy实现
 /// 

@@ -369,7 +369,8 @@ fn check_fill_buf_err(reader: &mut dyn io::BufRead, err_kind: io::ErrorKind) {
 
 #[test]
 fn config_builder_for_client_rejects_empty_kx_groups() {
-    assert_eq!(
+    // This test should panic due to provider consistency check
+    let result = std::panic::catch_unwind(|| {
         ClientConfig::builder_with_provider(
             CryptoProvider {
                 kx_groups: Vec::default(),
@@ -379,14 +380,14 @@ fn config_builder_for_client_rejects_empty_kx_groups() {
         )
         .with_root_certificates(KeyType::EcdsaP256.client_root_store())
         .with_no_client_auth()
-        .err(),
-        Some(ApiMisuse::NoKeyExchangeGroupsConfigured.into())
-    );
+    });
+    assert!(result.is_err(), "Expected panic due to empty kx_groups");
 }
 
 #[test]
 fn config_builder_for_client_rejects_empty_cipher_suites() {
-    assert_eq!(
+    // This test should panic due to provider consistency check
+    let result = std::panic::catch_unwind(|| {
         ClientConfig::builder_with_provider(
             CryptoProvider {
                 tls12_cipher_suites: Vec::default(),
@@ -397,9 +398,8 @@ fn config_builder_for_client_rejects_empty_cipher_suites() {
         )
         .with_root_certificates(KeyType::EcdsaP256.client_root_store())
         .with_no_client_auth()
-        .err(),
-        Some(ApiMisuse::NoCipherSuitesConfigured.into())
-    );
+    });
+    assert!(result.is_err(), "Expected panic due to empty cipher suites");
 }
 
 #[test]
@@ -7461,8 +7461,7 @@ fn test_pinned_ocsp_response_given_to_custom_server_cert_verifier() {
             .with_custom_certificate_verifier(Arc::new(MockServerVerifier::expects_ocsp_response(
                 ocsp_response,
             )))
-            .with_no_client_auth()
-            .unwrap();
+            .with_no_client_auth();
 
         let (mut client, mut server) = make_pair_for_configs(client_config, server_config);
         do_handshake(&mut client, &mut server);
@@ -8099,8 +8098,7 @@ fn tls13_packed_handshake() {
     .with_custom_certificate_verifier(Arc::new(MockServerVerifier::rejects_certificate(
         CertificateError::UnknownIssuer.into(),
     )))
-    .with_no_client_auth()
-    .unwrap();
+    .with_no_client_auth();
 
     let mut client =
         ClientConnection::new(Arc::new(client_config), server_name("localhost")).unwrap();

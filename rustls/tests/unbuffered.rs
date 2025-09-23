@@ -902,8 +902,7 @@ fn tls13_packed_handshake() {
     .with_custom_certificate_verifier(Arc::new(MockServerVerifier::rejects_certificate(
         CertificateError::UnknownIssuer.into(),
     )))
-    .with_no_client_auth()
-    .unwrap();
+    .with_no_client_auth();
 
     let mut client =
         UnbufferedClientConnection::new(Arc::new(client_config), server_name("localhost")).unwrap();

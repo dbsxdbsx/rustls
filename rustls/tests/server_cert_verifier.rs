@@ -203,10 +203,12 @@ fn client_can_request_certain_trusted_cas() {
         root_store
             .add(key_type.ca_cert())
             .unwrap();
-        let server_verifier =
-            WebPkiServerVerifier::builder_with_provider(Arc::new(root_store), &provider)
-                .build()
-                .unwrap();
+        let server_verifier = WebPkiServerVerifier::builder_with_provider(
+            Arc::new(root_store),
+            provider.clone().into(),
+        )
+        .build()
+        .unwrap();
 
         let cas_sending_server_verifier = Arc::new(ServerCertVerifierWithCasExt {
             verifier: server_verifier.clone(),
@@ -221,8 +223,7 @@ fn client_can_request_certain_trusted_cas() {
             ClientConfig::builder_with_provider(provider.clone().into())
                 .dangerous()
                 .with_custom_certificate_verifier(cas_sending_server_verifier)
-                .with_no_client_auth()
-                .unwrap();
+                .with_no_client_auth();
 
         let (mut client, mut server) =
             make_pair_for_arc_configs(&Arc::new(cas_sending_client_config), &server_config);
@@ -232,8 +233,7 @@ fn client_can_request_certain_trusted_cas() {
             ClientConfig::builder_with_provider(provider.clone().into())
                 .dangerous()
                 .with_custom_certificate_verifier(server_verifier)
-                .with_no_client_auth()
-                .unwrap();
+                .with_no_client_auth();
 
         let (mut client, mut server) =
             make_pair_for_arc_configs(&Arc::new(cas_unaware_client_config), &server_config);
