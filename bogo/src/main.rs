@@ -29,9 +29,8 @@ use base64::prelude::{BASE64_STANDARD, Engine};
 use nix::sys::signal::{self, Signal};
 #[cfg(unix)]
 use nix::unistd::Pid;
-use rustls::client::danger::{
-    HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier, ServerIdentity,
-};
+use rustls::DigitallySignedStruct;
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::client::{
     ClientConfig, ClientConnection, EchConfig, EchGreaseConfig, EchMode, EchStatus, Resumption,
     Tls12Resumption, WebPkiServerVerifier,
@@ -44,6 +43,7 @@ use rustls::internal::msgs::persist::ServerSessionValue;
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{
     CertificateDer, EchConfigListBytes, PrivateKeyDer, ServerName, SubjectPublicKeyInfoDer,
+    UnixTime,
 };
 use rustls::server::danger::{
     ClientCertVerified, ClientCertVerifier, ClientIdentity, SignatureVerificationInput,
@@ -474,36 +474,42 @@ impl DummyServerAuth {
 impl ServerCertVerifier for DummyServerAuth {
     fn verify_server_cert(
         &self,
-        _identity: &ServerIdentity<'_>,
+        end_entity: &CertificateDer<'_>,
+        intermediates: &[CertificateDer<'_>],
+        server_name: &ServerName<'_>,
+        ocsp_response: &[u8],
+        now: UnixTime,
     ) -> Result<ServerCertVerified, Error> {
         if let OcspValidation::Reject = self.ocsp {
             return Err(CertificateError::InvalidOcspResponse.into());
         }
-        Ok(ServerCertVerified::assertion())
+        // Delegate to the parent verifier for actual certificate validation
+        self.parent
+            .verify_server_cert(end_entity, intermediates, server_name, ocsp_response, now)
     }
 
     fn verify_tls12_signature(
         &self,
-        input: &SignatureVerificationInput<'_>,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, Error> {
         self.parent
-            .verify_tls12_signature(input)
+            .verify_tls12_signature(message, cert, dss)
     }
 
     fn verify_tls13_signature(
         &self,
-        input: &SignatureVerificationInput<'_>,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, Error> {
         self.parent
-            .verify_tls13_signature(input)
+            .verify_tls13_signature(message, cert, dss)
     }
 
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
         self.parent.supported_verify_schemes()
-    }
-
-    fn request_ocsp_response(&self) -> bool {
-        true
     }
 }
 

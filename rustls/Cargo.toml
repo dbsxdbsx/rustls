@@ -26,8 +26,9 @@
   zlib           =["dep:zlib-rs"]
   aws_lc_rs      =["aws-lc-rs"]
 
-  tls12  =[]
-  logging=["log"]
+  tls12         =[]
+  logging       =["log"]
+  reality-crypto=["x25519-dalek", "hkdf", "aes-gcm", "sha2"]
 
 [dependencies]
   aws-lc-rs          ={workspace=true, optional=true}
@@ -36,13 +37,17 @@
   hashbrown          ={workspace=true, optional=true}
   log                ={workspace=true, optional=true}
   # only required for no-std
-  once_cell={workspace=true}
-  ring     ={workspace=true, optional=true}
-  subtle   ={workspace=true}
-  webpki   ={workspace=true}
-  pki-types={workspace=true}
-  zeroize  ={workspace=true}
-  zlib-rs  ={workspace=true, optional=true}
+  once_cell   ={workspace=true}
+  ring        ={workspace=true, optional=true}
+  subtle      ={workspace=true}
+  webpki      ={workspace=true}
+  pki-types   ={workspace=true}
+  zeroize     ={workspace=true}
+  zlib-rs     ={workspace=true, optional=true}
+  x25519-dalek={workspace=true, optional=true}
+  hkdf        ={workspace=true, optional=true}
+  aes-gcm     ={workspace=true, optional=true}
+  sha2        ={workspace=true, optional=true}
 
 [dev-dependencies]
   bencher              ={workspace=true}
@@ -100,6 +105,11 @@
 [[test]]
   name="unbuffered"
   path="tests/runners/unbuffered.rs"
+
+[[test]]
+  name             ="reality_integration"
+  path             ="tests/reality_integration.rs"
+  required-features=["reality-crypto"]
 
 [package.metadata.docs.rs]
   # all non-default features except fips (cannot build on docs.rs environment)

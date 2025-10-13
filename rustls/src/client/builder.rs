@@ -68,6 +68,7 @@ impl ConfigBuilder<ClientConfig, WantsVerifier> {
             state: WantsClientCert {
                 verifier,
                 client_ech_mode: self.state.client_ech_mode,
+                hello_policy: None,
             },
             provider: self.provider,
             time_provider: self.time_provider,
@@ -107,6 +108,7 @@ pub(super) mod danger {
                 state: WantsClientCert {
                     verifier,
                     client_ech_mode: self.cfg.state.client_ech_mode,
+                    hello_policy: None,
                 },
                 provider: self.cfg.provider,
                 time_provider: self.cfg.time_provider,
@@ -124,6 +126,7 @@ pub(super) mod danger {
 pub struct WantsClientCert {
     verifier: Arc<dyn verify::ServerCertVerifier>,
     client_ech_mode: Option<EchMode>,
+    hello_policy: Option<Arc<dyn super::hello_policy::HelloPolicy>>,
 }
 
 impl ConfigBuilder<ClientConfig, WantsClientCert> {
@@ -143,6 +146,35 @@ impl ConfigBuilder<ClientConfig, WantsClientCert> {
     ) -> Result<ClientConfig, Error> {
         let certified_key = CertifiedKey::from_der(cert_chain, key_der, &self.provider)?;
         self.with_client_cert_resolver(Arc::new(SingleCertAndKey::from(certified_key)))
+    }
+
+    /// Set a HelloPolicy for customizing ClientHello construction.
+    ///
+    /// This allows runtime-pluggable policies that can influence various aspects
+    /// of ClientHello construction, including REALITY protocol support.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use rustls::client::{ClientConfig, RealityHelloPolicy};
+    /// # use std::sync::Arc;
+    /// # #[cfg(feature = "aws-lc-rs")] {
+    /// # rustls::crypto::aws_lc_rs::default_provider().install_default();
+    /// let policy = RealityHelloPolicy::new()
+    ///     .with_reality_token(b"example_token".to_vec());
+    /// 
+    /// let config = ClientConfig::builder()
+    ///     .with_root_certificates(rustls::RootCertStore::empty())
+    ///     .with_no_client_auth()
+    ///     .with_hello_policy(Arc::new(policy));
+    /// # }
+    /// ```
+    pub fn with_hello_policy(
+        mut self,
+        hello_policy: Arc<dyn super::hello_policy::HelloPolicy>,
+    ) -> Self {
+        self.state.hello_policy = Some(hello_policy);
+        self
     }
 
     /// Do not support client auth.
@@ -196,7 +228,7 @@ impl ConfigBuilder<ClientConfig, WantsClientCert> {
             cert_compression_cache: Arc::new(compress::CompressionCache::default()),
             cert_decompressors: compress::default_cert_decompressors().to_vec(),
             ech_mode: self.state.client_ech_mode,
-            hello_policy: None,
+            hello_policy: self.state.hello_policy,
         })
     }
 }

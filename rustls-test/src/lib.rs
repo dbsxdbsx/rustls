@@ -17,9 +17,7 @@ use core::ops::DerefMut;
 use std::io;
 use std::sync::{Arc, OnceLock};
 
-use rustls::client::danger::{
-    HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier,
-};
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::client::{
     AlwaysResolvesClientRawPublicKeys, ServerCertVerifierBuilder, UnbufferedClientConnection,
     WebPkiServerVerifier,
@@ -46,8 +44,9 @@ use rustls::unbuffered::{
 };
 use rustls::{
     CertificateType, CipherSuite, ClientConfig, ClientConnection, Connection, ConnectionCommon,
-    ContentType, DigitallySignedStruct, DistinguishedName, Error, InconsistentKeys, NamedGroup, ProtocolVersion,
-    RootCertStore, ServerConfig, ServerConnection, SideData, SignatureScheme, SupportedCipherSuite,
+    ContentType, DigitallySignedStruct, DistinguishedName, Error, InconsistentKeys, NamedGroup,
+    ProtocolVersion, RootCertStore, ServerConfig, ServerConnection, SideData, SignatureScheme,
+    SupportedCipherSuite,
 };
 
 macro_rules! embed_files {
@@ -1086,7 +1085,9 @@ impl ServerCertVerifier for MockServerVerifier {
         ocsp_response: &[u8],
         now: UnixTime,
     ) -> Result<ServerCertVerified, Error> {
-        println!("verify_server_cert(end_entity: {end_entity:?}, intermediates: {intermediates:?}, server_name: {server_name:?}, ocsp_response: {ocsp_response:?}, now: {now:?})");
+        println!(
+            "verify_server_cert(end_entity: {end_entity:?}, intermediates: {intermediates:?}, server_name: {server_name:?}, ocsp_response: {ocsp_response:?}, now: {now:?})"
+        );
         if let Some(expected_ocsp) = &self.expected_ocsp_response {
             assert_eq!(expected_ocsp, ocsp_response);
         }
@@ -1122,7 +1123,7 @@ impl ServerCertVerifier for MockServerVerifier {
                 // For raw public keys, we need to create the input and call verify_tls13_signature
                 // This is a simplified version for testing
                 Ok(HandshakeSignatureValid::assertion())
-            },
+            }
             _ => Ok(HandshakeSignatureValid::assertion()),
         }
     }

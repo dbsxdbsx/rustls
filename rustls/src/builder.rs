@@ -69,6 +69,7 @@ use crate::{ClientConfig, ServerConfig};
 /// ClientConfig::builder()
 ///     .with_root_certificates(root_certs)
 ///     .with_no_client_auth()
+///     .build()
 ///     .unwrap();
 /// # }
 /// ```

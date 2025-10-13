@@ -42,9 +42,7 @@ mod tests {
     use crate::pki_types::pem::PemObject;
     use crate::sign::CertifiedKey;
     use crate::tls13::key_schedule::{derive_traffic_iv, derive_traffic_key};
-    use crate::verify::{
-        HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier,
-    };
+    use crate::verify::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
     use crate::{DigitallySignedStruct, DistinguishedName, KeyLog};
 
     /// Tests that session_ticket(35) extension
@@ -195,8 +193,7 @@ mod tests {
                 ClientConfig::builder_with_provider(provider.into())
                     .dangerous()
                     .with_custom_certificate_verifier(Arc::new(cas_sending_server_verifier.clone()))
-                    .with_no_client_auth()
-                    ,
+                    .with_no_client_auth(),
             )
             .unwrap();
             assert_eq!(
@@ -575,6 +572,10 @@ mod tests {
 
         fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
             vec![SignatureScheme::RSA_PKCS1_SHA1]
+        }
+
+        fn supported_certificate_types(&self) -> &'static [CertificateType] {
+            &[CertificateType::RawPublicKey]
         }
 
         fn requires_raw_public_keys(&self) -> bool {

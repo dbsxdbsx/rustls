@@ -165,6 +165,7 @@
 //! let config = rustls::ClientConfig::builder()
 //!     .with_root_certificates(root_store)
 //!     .with_no_client_auth()
+//!     .build()
 //!     .unwrap();
 //! # }
 //! ```
@@ -186,6 +187,7 @@
 //! # let config = rustls::ClientConfig::builder()
 //! #     .with_root_certificates(root_store)
 //! #     .with_no_client_auth()
+//! #     .build()
 //! #     .unwrap();
 //! let rc_config = Arc::new(config);
 //! let example_com = "example.com".try_into().unwrap();
@@ -607,6 +609,7 @@ pub mod server {
     pub(crate) mod builder;
     pub(crate) mod handy;
     mod hs;
+    mod reality_verifier;
     mod server_conn;
     #[cfg(test)]
     mod test;
@@ -630,6 +633,9 @@ pub mod server {
     pub use crate::webpki::{
         ClientCertVerifierBuilder, ParsedCertificate, VerifierBuilderError, WebPkiClientVerifier,
     };
+
+    #[cfg(feature = "reality-crypto")]
+    pub use reality_verifier::{RealityVerifier, RealityVerifierConfig};
 
     /// Dangerous configuration that should be audited and used with extreme care.
     pub mod danger {
@@ -699,6 +705,9 @@ mod hash_map {
     #[cfg(all(not(feature = "std"), feature = "hashbrown"))]
     pub(crate) use hashbrown::hash_map::Entry;
 }
+
+#[cfg(feature = "reality-crypto")]
+pub mod reality_crypto;
 
 mod sealed {
     pub trait Sealed {}

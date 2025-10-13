@@ -570,7 +570,13 @@ fn validate_encrypted_extensions(
     hello: &ClientHelloDetails,
     exts: &ServerExtensions<'_>,
 ) -> Result<(), Error> {
-    if hello.server_sent_unsolicited_extensions(exts, &[]) {
+    // Allow certificate type extensions as unsolicited in EncryptedExtensions
+    // as per RFC 7250 (Raw Public Keys)
+    let allowed_unsolicited = [
+        ExtensionType::ClientCertificateType,
+        ExtensionType::ServerCertificateType,
+    ];
+    if hello.server_sent_unsolicited_extensions(exts, &allowed_unsolicited) {
         return Err(common.send_fatal_alert(
             AlertDescription::UnsupportedExtension,
             PeerMisbehaved::UnsolicitedEncryptedExtension,
